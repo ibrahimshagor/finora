@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile settings and configuration in Finora",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "theme": { "type": "string", "enum": ["light", "dark", "system"] },
+        "privacyMode": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "email"]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "Financial accounts (Cash, Bank, Savings, Digital Wallet, Loan, Credit Card, Investment, Other)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["cash", "bank", "savings", "wallet", "loan", "credit_card", "investment", "other"] },
+        "institutionName": { "type": "string", "maxLength": 100 },
+        "accountNumber": { "type": "string", "maxLength": 50 },
+        "balance": { "type": "number" },
+        "initialBalance": { "type": "number" },
+        "creditLimit": { "type": "number" },
+        "isHidden": { "type": "boolean" },
+        "color": { "type": "string", "maxLength": 30 },
+        "icon": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "type", "balance"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "All financial operations: Income, Expense, Transfer, Loans, Credit Card Payments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["income", "expense", "transfer", "loan_taken", "loan_given", "loan_repayment", "loan_collection", "credit_card_payment"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "targetAccountId": { "type": "string", "maxLength": 128 },
+        "loanId": { "type": "string", "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 100 },
+        "subcategory": { "type": "string", "maxLength": 100 },
+        "payerPayee": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 500 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "receiptUrl": { "type": "string", "maxLength": 2048 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "amount", "date", "accountId"]
+    },
+    "Loan": {
+      "title": "Loan",
+      "description": "Loans borrowed (liabilities) or loans given (receivables)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["borrowed", "lent"] },
+        "personName": { "type": "string", "maxLength": 150 },
+        "contactInfo": { "type": "string", "maxLength": 150 },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "startDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "interestRate": { "type": "number" },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["active", "settled"] },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "personName", "totalAmount"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Category-based monthly or custom timeframe spending budgets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 100 },
+        "categoryName": { "type": "string", "maxLength": 100 },
+        "targetAmount": { "type": "number" },
+        "period": { "type": "string", "enum": ["monthly", "custom"] },
+        "month": { "type": "string", "maxLength": 7 },
+        "alertThreshold": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "categoryId", "targetAmount"]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Target financial savings goals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "targetAmount": { "type": "number" },
+        "currentAmount": { "type": "number" },
+        "targetDate": { "type": "string" },
+        "category": { "type": "string", "maxLength": 100 },
+        "linkedAccountId": { "type": "string", "maxLength": 128 },
+        "isCompleted": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "targetAmount"]
+    },
+    "BillSubscription": {
+      "title": "BillSubscription",
+      "description": "Recurring utility bills, loans and subscriptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "amount": { "type": "number" },
+        "category": { "type": "string", "maxLength": 100 },
+        "frequency": { "type": "string", "enum": ["monthly", "yearly", "quarterly", "weekly"] },
+        "dueDate": { "type": "string" },
+        "reminderDays": { "type": "number" },
+        "status": { "type": "string", "enum": ["unpaid", "paid", "overdue"] },
+        "lastPaidDate": { "type": "string" },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "amount", "dueDate"]
+    },
+    "Investment": {
+      "title": "Investment",
+      "description": "Investment assets such as DPS, FDR, Stocks, Mutual Funds, Gold",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "enum": ["dps", "fdr", "stocks", "mutual_fund", "gold", "crypto", "real_estate", "other"] },
+        "investedAmount": { "type": "number" },
+        "currentValue": { "type": "number" },
+        "expectedReturnRate": { "type": "number" },
+        "startDate": { "type": "string" },
+        "maturityDate": { "type": "string" },
+        "institution": { "type": "string", "maxLength": 100 },
+        "linkedAccountId": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "type", "investedAmount"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile information"
+    },
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": "Account",
+      "description": "User's financial accounts"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "User's financial transactions"
+    },
+    "/users/{userId}/loans/{loanId}": {
+      "schema": "Loan",
+      "description": "User's loans borrowed and given"
+    },
+    "/users/{userId}/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "User's spending budgets"
+    },
+    "/users/{userId}/savingsGoals/{goalId}": {
+      "schema": "SavingsGoal",
+      "description": "User's savings targets"
+    },
+    "/users/{userId}/bills/{billId}": {
+      "schema": "BillSubscription",
+      "description": "User's recurring bills and subscriptions"
+    },
+    "/users/{userId}/investments/{investmentId}": {
+      "schema": "Investment",
+      "description": "User's investments"
+    }
+  }
+}
