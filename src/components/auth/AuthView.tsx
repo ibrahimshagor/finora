@@ -93,6 +93,11 @@ export const AuthView: React.FC = () => {
       setErrorMessage('অনুগ্রহ করে আপনার পুরো নাম প্রদান করুন।');
       return;
     }
+    const englishNameRegex = /^[A-Za-z\s.'-]+$/;
+    if (!englishNameRegex.test(regName.trim())) {
+      setErrorMessage('নামটি অবশ্যই শুধুমাত্র ইংরেজি অক্ষরে লিখতে হবে (যেমন: Tanvir Ahmed)।');
+      return;
+    }
     if (!regEmail.trim()) {
       setErrorMessage('অনুগ্রহ করে একটি সঠিক ইমেইল ঠিকানা দিন।');
       return;
@@ -385,9 +390,12 @@ export const AuthView: React.FC = () => {
               {activeTab === 'register' && (
                 <form onSubmit={handleRegister} className="space-y-3.5">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      আপনার পুরো নাম (Full Name)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-slate-300">
+                        আপনার পুরো নাম (ইংরেজিতে / In English)
+                      </label>
+                      <span className="text-[10px] text-emerald-400 font-medium">English only</span>
+                    </div>
                     <div className="relative">
                       <UserIcon className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
@@ -395,10 +403,11 @@ export const AuthView: React.FC = () => {
                         required
                         value={regName}
                         onChange={(e) => setRegName(e.target.value)}
-                        placeholder="যেমন: মোঃ ইব্রাহীম সাগর"
+                        placeholder="e.g. Tanvir Ahmed"
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-800/60 border border-slate-700 focus:border-emerald-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
                       />
                     </div>
+                    <p className="text-[10px] text-slate-400 mt-1">দয়া করে নামটি শুধুমাত্র ইংরেজি অক্ষরে লিখুন (যেমন: Tanvir Ahmed)</p>
                   </div>
 
                   <div>

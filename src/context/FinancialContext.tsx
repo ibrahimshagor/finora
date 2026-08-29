@@ -1789,30 +1789,64 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return JSON.stringify(fullBackup, null, 2);
   };
 
-  const importDataJSON = async (jsonStr: string): Promise<boolean> => {
+  const importDataJSON = async (jsonInput: string | any): Promise<boolean> => {
     try {
-      const data = JSON.parse(jsonStr);
-      if (!data.accounts || !data.transactions) {
-        throw new Error('Invalid FINORA backup structure.');
+      let data: any = typeof jsonInput === 'string' ? JSON.parse(jsonInput) : jsonInput;
+      if (!data) return false;
+
+      // Check if data is nested inside a payload or data wrapper (from snapshots or cloud backups)
+      if (data.payload && typeof data.payload === 'object') {
+        data = data.payload;
+      } else if (data.data && typeof data.data === 'object' && (data.data.accounts || data.data.transactions)) {
+        data = data.data;
       }
 
-      if (data.accounts) setAccounts(data.accounts);
-      if (data.transactions) setTransactions(data.transactions);
-      if (data.loans) setLoans(data.loans);
-      if (data.budgets) setBudgets(data.budgets);
-      if (data.savingsGoals) setSavingsGoals(data.savingsGoals);
-      if (data.bills) setBills(data.bills);
-      if (data.investments) setInvestments(data.investments);
-      if (data.categories) setCategories(data.categories);
-      if (data.currency) setCurrency(data.currency);
+      const importedAccounts = Array.isArray(data.accounts) ? data.accounts : (data.accounts ? [data.accounts] : accounts);
+      const importedTransactions = Array.isArray(data.transactions) ? data.transactions : (data.transactions ? [data.transactions] : transactions);
+      const importedLoans = Array.isArray(data.loans) ? data.loans : loans;
+      const importedBudgets = Array.isArray(data.budgets) ? data.budgets : budgets;
+      const importedSavings = Array.isArray(data.savingsGoals) ? data.savingsGoals : (Array.isArray(data.goals) ? data.goals : savingsGoals);
+      const importedBills = Array.isArray(data.bills) ? data.bills : bills;
+      const importedInvestments = Array.isArray(data.investments) ? data.investments : investments;
+      const importedCategories = Array.isArray(data.categories) && data.categories.length > 0 ? data.categories : categories;
 
-      saveToLocalStorage('accounts', data.accounts);
-      saveToLocalStorage('transactions', data.transactions);
-      saveToLocalStorage('loans', data.loans || []);
-      saveToLocalStorage('budgets', data.budgets || []);
-      saveToLocalStorage('goals', data.savingsGoals || []);
-      saveToLocalStorage('bills', data.bills || []);
-      saveToLocalStorage('investments', data.investments || []);
+      setAccounts(importedAccounts);
+      setTransactions(importedTransactions);
+      setLoans(importedLoans);
+      setBudgets(importedBudgets);
+      setSavingsGoals(importedSavings);
+      setBills(importedBills);
+      setInvestments(importedInvestments);
+      setCategories(importedCategories);
+
+      if (data.currency) {
+        setCurrency(data.currency);
+      }
+
+      saveToLocalStorage('accounts', importedAccounts);
+      saveToLocalStorage('transactions', importedTransactions);
+      saveToLocalStorage('loans', importedLoans);
+      saveToLocalStorage('budgets', importedBudgets);
+      saveToLocalStorage('goals', importedSavings);
+      saveToLocalStorage('bills', importedBills);
+      saveToLocalStorage('investments', importedInvestments);
+      saveToLocalStorage('categories', importedCategories);
+
+      // Cloud Firestore batch sync if authenticated
+      if (user && !isGuest) {
+        try {
+          const batch = writeBatch(db);
+          for (const acc of importedAccounts) {
+            batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc);
+          }
+          for (const tx of importedTransactions.slice(0, 100)) {
+            batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), tx);
+          }
+          await batch.commit();
+        } catch (err) {
+          console.warn('Firestore restore sync warning:', err);
+        }
+      }
 
       return true;
     } catch (e) {
