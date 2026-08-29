@@ -636,7 +636,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const performDailyBackupCheck = async () => {
       try {
-        const config = getAutoBackupConfig();
+        const config = getAutoBackupConfig(userId);
         if (!config.enabled) return;
 
         const now = new Date();
@@ -668,14 +668,14 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           }, 'auto_daily');
 
           // Save to local snapshot storage
-          saveSnapshot(snapshot, config.maxStoredSnapshots || 10);
+          saveSnapshot(snapshot, config.maxStoredSnapshots || 10, userId);
 
           // If Google Drive token exists and auto-sync is enabled, upload to user's personal Google Drive
-          const driveToken = getStoredGoogleDriveToken();
-          const driveSettings = getGoogleDriveSettings();
+          const driveToken = getStoredGoogleDriveToken(userId);
+          const driveSettings = getGoogleDriveSettings(userId);
           if (driveToken && driveSettings.autoSync) {
             try {
-              await uploadBackupFileToDrive(driveToken, snapshot.data, `FINORA_AutoDaily_${todayStr}.json`);
+              await uploadBackupFileToDrive(driveToken, snapshot.data, `FINORA_AutoDaily_${todayStr}.json`, userId);
               console.log('✅ Automated daily backup successfully uploaded to personal Google Drive');
             } catch (driveErr) {
               console.warn('Google Drive auto-backup error:', driveErr);
@@ -686,7 +686,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           saveAutoBackupConfig({
             lastBackupDate: todayStr,
             lastBackupTimestamp: now.toISOString(),
-          });
+          }, userId);
         }
       } catch (err) {
         console.error('Error during auto backup check:', err);
@@ -699,7 +699,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // Check periodically every 60 seconds
     const interval = setInterval(performDailyBackupCheck, 60000);
     return () => clearInterval(interval);
-  }, [accounts, transactions, loans, budgets, savingsGoals, bills, investments, categories]);
+  }, [accounts, transactions, loans, budgets, savingsGoals, bills, investments, categories, userId]);
 
   // Synchronize generated notifications (bills due, budget overshoots, loan payments)
   useEffect(() => {

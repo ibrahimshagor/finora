@@ -1,5 +1,5 @@
-// Google Drive Backup Client Integration for FINORA
-// Enables individual users to backup & restore directly to their own personal Google Drive
+// Google Drive Real-time Cloud Backup Integration for FINORA
+// Uses Google Identity Services (GSI) OAuth 2.0 Token Client & Google Drive v3 REST API
 
 export interface GoogleDriveFile {
   id: string;
@@ -7,6 +7,7 @@ export interface GoogleDriveFile {
   createdTime: string;
   size?: string;
   mimeType: string;
+  webViewLink?: string;
   userEmail?: string;
 }
 
@@ -19,15 +20,25 @@ export interface GoogleDriveStatus {
   folderName: string;
 }
 
+export const GDRIVE_FOLDER_NAME = 'FINORA_Financial_Backups';
+
+// Official Google Cloud OAuth Client ID provisioned for FINORA
+export const DEFAULT_GOOGLE_CLIENT_ID = 
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID) ||
+  '874801210488-hk4t3sflhaqktfcsgcnutcc1ghom1hp4.apps.googleusercontent.com';
+
 const STORAGE_KEY_GDRIVE_TOKEN = 'finora_gdrive_access_token';
 const STORAGE_KEY_GDRIVE_USER = 'finora_gdrive_user_info';
 const STORAGE_KEY_GDRIVE_SETTINGS = 'finora_gdrive_settings';
-const STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS = 'finora_local_cloud_backup_snapshots';
-const GDRIVE_FOLDER_NAME = 'FINORA_Financial_Backups';
 
-export const getGoogleDriveSettings = (): { autoSync: boolean; scheduledTime: string } => {
+const getScopedKey = (baseKey: string, userKey?: string): string => {
+  if (!userKey || userKey === 'guest') return baseKey;
+  return `${baseKey}_${userKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+};
+
+export const getGoogleDriveSettings = (userKey?: string): { autoSync: boolean; scheduledTime: string } => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_GDRIVE_SETTINGS);
+    const raw = localStorage.getItem(getScopedKey(STORAGE_KEY_GDRIVE_SETTINGS, userKey));
     if (!raw) return { autoSync: true, scheduledTime: '23:00' };
     return JSON.parse(raw);
   } catch {
@@ -35,17 +46,18 @@ export const getGoogleDriveSettings = (): { autoSync: boolean; scheduledTime: st
   }
 };
 
-export const saveGoogleDriveSettings = (settings: { autoSync: boolean; scheduledTime: string }) => {
-  localStorage.setItem(STORAGE_KEY_GDRIVE_SETTINGS, JSON.stringify(settings));
+export const saveGoogleDriveSettings = (settings: { autoSync: boolean; scheduledTime: string }, userKey?: string) => {
+  localStorage.setItem(getScopedKey(STORAGE_KEY_GDRIVE_SETTINGS, userKey), JSON.stringify(settings));
 };
 
-export const getStoredGoogleDriveToken = (): string | null => {
+export const getStoredGoogleDriveToken = (userKey?: string): string | null => {
   try {
-    const data = localStorage.getItem(STORAGE_KEY_GDRIVE_TOKEN);
+    const key = getScopedKey(STORAGE_KEY_GDRIVE_TOKEN, userKey);
+    const data = localStorage.getItem(key);
     if (!data) return null;
     const parsed = JSON.parse(data);
     if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
-      localStorage.removeItem(STORAGE_KEY_GDRIVE_TOKEN);
+      localStorage.removeItem(key);
       return null;
     }
     return parsed.token || null;
@@ -54,42 +66,45 @@ export const getStoredGoogleDriveToken = (): string | null => {
   }
 };
 
-export const saveGoogleDriveToken = (token: string, expiresInSeconds: number = 86400, email?: string, name?: string) => {
+export const saveGoogleDriveToken = (
+  token: string,
+  expiresInSeconds: number = 3600,
+  email?: string,
+  name?: string,
+  userKey?: string
+) => {
   const expiresAt = Date.now() + (expiresInSeconds - 60) * 1000;
-  localStorage.setItem(STORAGE_KEY_GDRIVE_TOKEN, JSON.stringify({ token, expiresAt }));
+  localStorage.setItem(
+    getScopedKey(STORAGE_KEY_GDRIVE_TOKEN, userKey),
+    JSON.stringify({ token, expiresAt })
+  );
   if (email || name) {
-    const existing = getGoogleDriveUserInfo() || {};
     const updated = {
-      email: email || existing.email || '',
-      name: name || existing.name || (email ? email.split('@')[0] : 'User')
+      email: email || '',
+      name: name || (email ? email.split('@')[0] : 'User')
     };
-    localStorage.setItem(STORAGE_KEY_GDRIVE_USER, JSON.stringify(updated));
+    localStorage.setItem(
+      getScopedKey(STORAGE_KEY_GDRIVE_USER, userKey),
+      JSON.stringify(updated)
+    );
   }
 };
 
-export const clearGoogleDriveSession = () => {
-  localStorage.removeItem(STORAGE_KEY_GDRIVE_TOKEN);
-  localStorage.removeItem(STORAGE_KEY_GDRIVE_USER);
+export const clearGoogleDriveSession = (userKey?: string) => {
+  localStorage.removeItem(getScopedKey(STORAGE_KEY_GDRIVE_TOKEN, userKey));
+  localStorage.removeItem(getScopedKey(STORAGE_KEY_GDRIVE_USER, userKey));
 };
 
-export const getGoogleDriveUserInfo = (): { email?: string; name?: string } | null => {
+export const getGoogleDriveUserInfo = (userKey?: string): { email?: string; name?: string } | null => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_GDRIVE_USER);
+    const raw = localStorage.getItem(getScopedKey(STORAGE_KEY_GDRIVE_USER, userKey));
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 };
 
-// Directly connect/update user's preferred Google account for drive backup
-export const connectUserGoogleAccount = (email: string, name?: string): string => {
-  const cleanEmail = email.trim();
-  const token = 'gdrive_auth_' + Date.now();
-  saveGoogleDriveToken(token, 86400 * 30, cleanEmail, name || cleanEmail.split('@')[0]);
-  return token;
-};
-
-// Helper to load Google GIS script
+// Wait for Google Identity Services (GSI) library to load
 export const loadGoogleGsiScript = (): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2) {
@@ -113,146 +128,94 @@ export const loadGoogleGsiScript = (): Promise<void> => {
   });
 };
 
-// Request User authorization for their own personal Google Drive
-export const requestGoogleDriveAccess = async (userEmail?: string, clientId?: string): Promise<string> => {
-  const targetEmail = userEmail || getGoogleDriveUserInfo()?.email || '';
+/**
+ * Initiates the Google OAuth 2.0 Account Picker and Drive Scope Consent flow.
+ * Shows native Google Account Selector popup so the user can choose ANY of their
+ * Google accounts (or sign into a different one) and grant permission for personal Drive storage.
+ */
+export const requestGoogleDriveAccess = async (
+  userKey?: string,
+  clientId?: string
+): Promise<{ token: string; email: string; name: string }> => {
+  await loadGoogleGsiScript();
 
-  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
-  if (isInIframe) {
-    const sessionToken = 'gdrive_auth_' + Date.now();
-    if (targetEmail) {
-      saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail, targetEmail.split('@')[0]);
-    } else {
-      saveGoogleDriveToken(sessionToken, 86400 * 30);
-    }
-    return sessionToken;
+  const google = (window as any).google;
+  if (!google?.accounts?.oauth2) {
+    throw new Error('Google Identity Services লোড করা সম্ভব হয়নি। অনুগ্রহ করে ইন্টারনেট সংযোগ চেক করুন বা পেজটি রিলোড দিন।');
   }
 
-  try {
-    await loadGoogleGsiScript();
-  } catch {
-    const sessionToken = 'gdrive_auth_' + Date.now();
-    if (targetEmail) {
-      saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-    }
-    return sessionToken;
-  }
+  const effectiveClientId = clientId || DEFAULT_GOOGLE_CLIENT_ID;
 
-  return new Promise((resolve) => {
-    const google = (window as any).google;
-    if (!google?.accounts?.oauth2) {
-      const sessionToken = 'gdrive_auth_' + Date.now();
-      if (targetEmail) {
-        saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-      }
-      resolve(sessionToken);
-      return;
-    }
-
-    const effectiveClientId = clientId || 
-      (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID) ||
-      '1022602249329-client.apps.googleusercontent.com';
-
-    let hasHandled = false;
-    const timeout = setTimeout(() => {
-      if (!hasHandled) {
-        hasHandled = true;
-        const sessionToken = 'gdrive_auth_' + Date.now();
-        if (targetEmail) {
-          saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-        }
-        resolve(sessionToken);
-      }
-    }, 2500);
-
+  return new Promise((resolve, reject) => {
     try {
-      const client = google.accounts.oauth2.initTokenClient({
+      const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: effectiveClientId,
         scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata email profile',
-        prompt: 'select_account',
-        hint: targetEmail || undefined,
-        callback: async (response: any) => {
-          if (hasHandled) return;
-          hasHandled = true;
-          clearTimeout(timeout);
-
-          if (response.error) {
-            const sessionToken = 'gdrive_auth_' + Date.now();
-            if (targetEmail) {
-              saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-            }
-            resolve(sessionToken);
+        prompt: 'select_account', // Forces Google Account Selector prompt
+        callback: async (tokenResponse: any) => {
+          if (tokenResponse.error) {
+            reject(new Error(`গুগল ড্রাইভ অথেনটিকেশন ব্যর্থ: ${tokenResponse.error_description || tokenResponse.error}`));
             return;
           }
 
-          const token = response.access_token;
-          const expiresIn = response.expires_in ? parseInt(response.expires_in, 10) : 3600;
+          const accessToken = tokenResponse.access_token;
+          if (!accessToken) {
+            reject(new Error('কোনো এক্সেস টোকেন পাওয়া যায়নি।'));
+            return;
+          }
 
-          // Fetch User's Google Profile
+          const expiresIn = tokenResponse.expires_in ? parseInt(tokenResponse.expires_in, 10) : 3600;
+
+          // Fetch the chosen Google Account profile
+          let userEmail = '';
+          let userName = '';
           try {
             const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${token}` }
+              headers: { Authorization: `Bearer ${accessToken}` },
             });
             if (userRes.ok) {
-              const userData = await userRes.json();
-              saveGoogleDriveToken(token, expiresIn, userData.email, userData.name);
-            } else if (targetEmail) {
-              saveGoogleDriveToken(token, expiresIn, targetEmail);
-            } else {
-              saveGoogleDriveToken(token, expiresIn);
+              const profile = await userRes.json();
+              userEmail = profile.email || '';
+              userName = profile.name || (userEmail ? userEmail.split('@')[0] : 'User');
             }
-          } catch {
-            if (targetEmail) {
-              saveGoogleDriveToken(token, expiresIn, targetEmail);
-            } else {
-              saveGoogleDriveToken(token, expiresIn);
-            }
+          } catch (profileErr) {
+            console.warn('Could not fetch userinfo from Google:', profileErr);
           }
 
-          resolve(token);
+          saveGoogleDriveToken(accessToken, expiresIn, userEmail, userName, userKey);
+          resolve({ token: accessToken, email: userEmail, name: userName });
         },
-        error_callback: () => {
-          if (hasHandled) return;
-          hasHandled = true;
-          clearTimeout(timeout);
-          const sessionToken = 'gdrive_auth_' + Date.now();
-          if (targetEmail) {
-            saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-          }
-          resolve(sessionToken);
-        }
+        error_callback: (err: any) => {
+          reject(new Error(`Google Authentication ত্রুটি: ${err?.message || 'পপআপ বন্ধ করা হয়েছে বা পারমিশন দেওয়া হয়নি।'}`));
+        },
       });
 
-      client.requestAccessToken({ prompt: 'select_account' });
-    } catch {
-      if (!hasHandled) {
-        hasHandled = true;
-        clearTimeout(timeout);
-        const sessionToken = 'gdrive_auth_' + Date.now();
-        if (targetEmail) {
-          saveGoogleDriveToken(sessionToken, 86400 * 30, targetEmail);
-        }
-        resolve(sessionToken);
-      }
+      // Request Google Token with account selector prompt
+      tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } catch (err: any) {
+      reject(new Error(`Google OAuth চালু করতে সমস্যা হয়েছে: ${err.message || err}`));
     }
   });
 };
 
-// Find or create 'FINORA_Financial_Backups' folder in user's personal Google Drive
+/**
+ * Searches for 'FINORA_Financial_Backups' folder in the user's real Google Drive.
+ * If not found, creates a dedicated folder in their personal Drive root.
+ */
 export const getOrCreateBackupFolder = async (accessToken: string): Promise<string> => {
-  if (accessToken.startsWith('gdrive_auth_')) {
-    return 'local_finora_backup_folder';
-  }
-
   const query = encodeURIComponent(`name = '${GDRIVE_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`;
 
   const searchRes = await fetch(searchUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` }
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
 
   if (!searchRes.ok) {
-    throw new Error('Google Drive API error when searching backup folder');
+    if (searchRes.status === 401) {
+      throw new Error('401: Google Drive এক্সেস টোকেনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার ড্রাইভ কানেক্ট করুন।');
+    }
+    const errText = await searchRes.text();
+    throw new Error(`Google Drive API অনুসন্ধান ত্রুটি: ${errText || searchRes.statusText}`);
   }
 
   const searchData = await searchRes.json();
@@ -260,7 +223,7 @@ export const getOrCreateBackupFolder = async (accessToken: string): Promise<stri
     return searchData.files[0].id;
   }
 
-  // Create folder if not found
+  // Create folder if it doesn't exist
   const createUrl = 'https://www.googleapis.com/drive/v3/files';
   const createRes = await fetch(createUrl, {
     method: 'POST',
@@ -276,46 +239,27 @@ export const getOrCreateBackupFolder = async (accessToken: string): Promise<stri
   });
 
   if (!createRes.ok) {
-    throw new Error('Failed to create FINORA backup folder in Google Drive');
+    const errText = await createRes.text();
+    throw new Error(`Google Drive এ "${GDRIVE_FOLDER_NAME}" ফোল্ডার তৈরি করতে ব্যর্থ হয়েছে: ${errText || createRes.statusText}`);
   }
 
   const createData = await createRes.json();
   return createData.id;
 };
 
-// Upload a backup JSON file directly to user's personal Google Drive
+/**
+ * Uploads a financial backup JSON file directly into the user's Google Drive folder.
+ */
 export const uploadBackupFileToDrive = async (
   accessToken: string,
   backupPayload: any,
-  fileName?: string
+  fileName?: string,
+  _userKey?: string
 ): Promise<GoogleDriveFile> => {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
   const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
   const finalFileName = fileName || `FINORA_Backup_${dateStr}_${timeStr}.json`;
-  const userInfo = getGoogleDriveUserInfo();
-  const userEmail = userInfo?.email || '';
-
-  if (accessToken.startsWith('gdrive_auth_')) {
-    const fileId = 'snap_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-    const newFile: GoogleDriveFile = {
-      id: fileId,
-      name: finalFileName,
-      createdTime: now.toISOString(),
-      size: String(JSON.stringify(backupPayload).length),
-      mimeType: 'application/json',
-      userEmail: userEmail || undefined
-    };
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS) || '[]';
-      const list = JSON.parse(raw);
-      list.unshift({ ...newFile, payload: backupPayload });
-      localStorage.setItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS, JSON.stringify(list.slice(0, 50)));
-    } catch (e) {
-      console.warn('Snapshot storage error:', e);
-    }
-    return newFile;
-  }
 
   const folderId = await getOrCreateBackupFolder(accessToken);
   const fileContent = JSON.stringify(backupPayload, null, 2);
@@ -324,7 +268,7 @@ export const uploadBackupFileToDrive = async (
     name: finalFileName,
     mimeType: 'application/json',
     parents: [folderId],
-    description: `FINORA Auto Daily Backup created on ${now.toLocaleString()}`,
+    description: `FINORA Financial Backup created on ${now.toLocaleString()}`,
   };
 
   const boundary = '-------314159265358979323846';
@@ -340,7 +284,7 @@ export const uploadBackupFileToDrive = async (
     fileContent +
     closeDelimiter;
 
-  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime,size,mimeType';
+  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime,size,mimeType,webViewLink';
 
   const res = await fetch(uploadUrl, {
     method: 'POST',
@@ -352,102 +296,56 @@ export const uploadBackupFileToDrive = async (
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('401: Google Drive সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে ড্রাইভ পুনরায় কানেক্ট করুন।');
+    }
     const errorText = await res.text();
-    throw new Error(`Upload failed: ${errorText || res.statusText}`);
+    throw new Error(`Google Drive এ ফাইল আপলোড ব্যর্থ: ${errorText || res.statusText}`);
   }
 
-  const file = await res.json();
+  const file: GoogleDriveFile = await res.json();
   return file;
 };
 
-// List all backups inside user's 'FINORA_Financial_Backups' folder
-export const listDriveBackups = async (accessToken: string): Promise<GoogleDriveFile[]> => {
-  const userInfo = getGoogleDriveUserInfo();
-  const currentUserEmail = userInfo?.email || '';
-
-  if (accessToken.startsWith('gdrive_auth_')) {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS) || '[]';
-      const list = JSON.parse(raw);
-      // Filter by current user email if available, otherwise show list
-      const filtered = list.filter((item: any) => {
-        if (!currentUserEmail) return true;
-        if (!item.userEmail) return true;
-        return item.userEmail.toLowerCase() === currentUserEmail.toLowerCase();
-      });
-
-      return filtered.map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        createdTime: item.createdTime,
-        size: item.size,
-        mimeType: item.mimeType,
-        userEmail: item.userEmail
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  try {
-    const folderId = await getOrCreateBackupFolder(accessToken);
-    const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&fields=files(id,name,createdTime,size,mimeType)`;
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-
-    if (!res.ok) {
-      throw new Error('Failed to retrieve backup list from Google Drive');
-    }
-
-    const data = await res.json();
-    return data.files || [];
-  } catch (err: any) {
-    // If Drive API call fails, also check local snapshot backups
-    const raw = localStorage.getItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS) || '[]';
-    const list = JSON.parse(raw);
-    if (list.length > 0) {
-      return list.map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        createdTime: item.createdTime,
-        size: item.size,
-        mimeType: item.mimeType,
-        userEmail: item.userEmail
-      }));
-    }
-    throw err;
-  }
-};
-
-// Fetch backup file content from Google Drive
-export const downloadDriveBackupContent = async (accessToken: string, fileId: string): Promise<any> => {
-  // Check local snapshots first if fileId matches or local token
-  const raw = localStorage.getItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS) || '[]';
-  try {
-    const list = JSON.parse(raw);
-    const found = list.find((item: any) => item.id === fileId);
-    if (found && found.payload) {
-      return found.payload;
-    }
-  } catch {
-    // continue
-  }
-
-  if (accessToken.startsWith('gdrive_auth_')) {
-    throw new Error('ব্যক্তিগত ব্যাকআপ ফাইলটি খুঁজে পাওয়া যায়নি।');
-  }
-
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+/**
+ * Lists all backup JSON files currently stored in user's 'FINORA_Financial_Backups' Google Drive folder.
+ */
+export const listDriveBackups = async (accessToken: string, _userKey?: string): Promise<GoogleDriveFile[]> => {
+  const folderId = await getOrCreateBackupFolder(accessToken);
+  const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&fields=files(id,name,createdTime,size,mimeType,webViewLink)`;
 
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` }
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
 
   if (!res.ok) {
-    throw new Error('Failed to download backup file content from Google Drive');
+    if (res.status === 401) {
+      throw new Error('401: সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার ড্রাইভ কানেক্ট করুন।');
+    }
+    const errText = await res.text();
+    throw new Error(`Google Drive ব্যাকআপ তালিকা আনতে সমস্যা হয়েছে: ${errText || res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data.files || [];
+};
+
+/**
+ * Downloads a backup file JSON directly from Google Drive.
+ */
+export const downloadDriveBackupContent = async (accessToken: string, fileId: string, _userKey?: string): Promise<any> => {
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('401: সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার ড্রাইভ কানেক্ট করুন।');
+    }
+    throw new Error('Google Drive থেকে ব্যাকআপ ফাইল নামানো সম্ভব হয়নি।');
   }
 
   const text = await res.text();
@@ -458,34 +356,21 @@ export const downloadDriveBackupContent = async (accessToken: string, fileId: st
   }
 };
 
-// Delete a backup from Google Drive
-export const deleteDriveBackupFile = async (accessToken: string, fileId: string): Promise<boolean> => {
-  let deletedFromLocal = false;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS) || '[]';
-    const list = JSON.parse(raw);
-    const exists = list.some((item: any) => item.id === fileId);
-    if (exists) {
-      const filtered = list.filter((item: any) => item.id !== fileId);
-      localStorage.setItem(STORAGE_KEY_LOCAL_BACKUP_SNAPSHOTS, JSON.stringify(filtered));
-      deletedFromLocal = true;
+/**
+ * Permanently deletes a backup file from the user's Google Drive.
+ */
+export const deleteDriveBackupFile = async (accessToken: string, fileId: string, _userKey?: string): Promise<boolean> => {
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('401: সেশনের মেয়াদ শেষ হয়েছে।');
     }
-  } catch {
-    // continue
+    return false;
   }
-
-  if (accessToken.startsWith('gdrive_auth_')) {
-    return true;
-  }
-
-  try {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}`;
-    const res = await fetch(url, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    return res.ok || deletedFromLocal;
-  } catch {
-    return deletedFromLocal;
-  }
+  return true;
 };

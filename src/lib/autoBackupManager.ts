@@ -36,6 +36,11 @@ export interface AutoBackupConfig {
 const STORAGE_KEY_CONFIG = 'finora_auto_backup_config';
 const STORAGE_KEY_SNAPSHOTS = 'finora_backup_snapshots';
 
+const getStorageKey = (baseKey: string, userId?: string): string => {
+  if (!userId || userId === 'guest') return baseKey;
+  return `${baseKey}_${userId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+};
+
 export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
   enabled: true,
   scheduledTime: '23:00',
@@ -45,9 +50,9 @@ export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
   maxStoredSnapshots: 10,
 };
 
-export const getAutoBackupConfig = (): AutoBackupConfig => {
+export const getAutoBackupConfig = (userId?: string): AutoBackupConfig => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_CONFIG);
+    const raw = localStorage.getItem(getStorageKey(STORAGE_KEY_CONFIG, userId));
     if (!raw) return DEFAULT_BACKUP_CONFIG;
     return { ...DEFAULT_BACKUP_CONFIG, ...JSON.parse(raw) };
   } catch {
@@ -55,16 +60,16 @@ export const getAutoBackupConfig = (): AutoBackupConfig => {
   }
 };
 
-export const saveAutoBackupConfig = (config: Partial<AutoBackupConfig>): AutoBackupConfig => {
-  const current = getAutoBackupConfig();
+export const saveAutoBackupConfig = (config: Partial<AutoBackupConfig>, userId?: string): AutoBackupConfig => {
+  const current = getAutoBackupConfig(userId);
   const updated = { ...current, ...config };
-  localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(updated));
+  localStorage.setItem(getStorageKey(STORAGE_KEY_CONFIG, userId), JSON.stringify(updated));
   return updated;
 };
 
-export const getStoredSnapshots = (): BackupSnapshot[] => {
+export const getStoredSnapshots = (userId?: string): BackupSnapshot[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_SNAPSHOTS);
+    const raw = localStorage.getItem(getStorageKey(STORAGE_KEY_SNAPSHOTS, userId));
     if (!raw) return [];
     const list: BackupSnapshot[] = JSON.parse(raw);
     return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -73,25 +78,25 @@ export const getStoredSnapshots = (): BackupSnapshot[] => {
   }
 };
 
-export const saveSnapshot = (snapshot: BackupSnapshot, maxKeep = 10): BackupSnapshot[] => {
+export const saveSnapshot = (snapshot: BackupSnapshot, maxKeep = 10, userId?: string): BackupSnapshot[] => {
   try {
-    const existing = getStoredSnapshots().filter((s) => s.id !== snapshot.id);
+    const existing = getStoredSnapshots(userId).filter((s) => s.id !== snapshot.id);
     const updated = [snapshot, ...existing].slice(0, maxKeep);
-    localStorage.setItem(STORAGE_KEY_SNAPSHOTS, JSON.stringify(updated));
+    localStorage.setItem(getStorageKey(STORAGE_KEY_SNAPSHOTS, userId), JSON.stringify(updated));
     return updated;
   } catch (err) {
     console.error('Failed to save snapshot to localStorage', err);
-    return getStoredSnapshots();
+    return getStoredSnapshots(userId);
   }
 };
 
-export const deleteStoredSnapshot = (id: string): BackupSnapshot[] => {
+export const deleteStoredSnapshot = (id: string, userId?: string): BackupSnapshot[] => {
   try {
-    const existing = getStoredSnapshots().filter((s) => s.id !== id);
-    localStorage.setItem(STORAGE_KEY_SNAPSHOTS, JSON.stringify(existing));
+    const existing = getStoredSnapshots(userId).filter((s) => s.id !== id);
+    localStorage.setItem(getStorageKey(STORAGE_KEY_SNAPSHOTS, userId), JSON.stringify(existing));
     return existing;
   } catch {
-    return getStoredSnapshots();
+    return getStoredSnapshots(userId);
   }
 };
 

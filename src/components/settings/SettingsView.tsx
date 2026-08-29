@@ -54,7 +54,6 @@ import {
   listDriveBackups,
   downloadDriveBackupContent,
   deleteDriveBackupFile,
-  connectUserGoogleAccount,
   GoogleDriveFile
 } from '../../lib/googleDriveBackup';
 
@@ -86,6 +85,9 @@ export const SettingsView: React.FC = () => {
 
   const { user, isGuestMode } = useAuth();
   
+  // User Scope Key (prevents cross-account session leakage)
+  const userKey = user?.uid || (user?.email ? 'u_' + btoa(user.email).replace(/[^a-zA-Z0-9]/g, '').slice(0, 15) : 'guest');
+
   // Status states
   const [importStatus, setImportStatus] = useState<string>('');
   const [testingDb, setTestingDb] = useState<boolean>(false);
@@ -94,22 +96,22 @@ export const SettingsView: React.FC = () => {
   const [firestorePushResult, setFirestorePushResult] = useState<string | null>(null);
 
   // Auto Backup Config & Snapshot state
-  const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
-  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(getStoredSnapshots());
+  const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(() => getAutoBackupConfig(userKey));
+  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() => getStoredSnapshots(userKey));
   const [isTakingSnapshot, setIsTakingSnapshot] = useState(false);
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
 
   // Google Drive state
-  const [gdriveToken, setGdriveToken] = useState<string | null>(getStoredGoogleDriveToken());
-  const [gdriveUser, setGdriveUser] = useState<{ email?: string; name?: string } | null>(getGoogleDriveUserInfo());
-  const [gdriveSettings, setGdriveSettings] = useState(getGoogleDriveSettings());
+  const [gdriveToken, setGdriveToken] = useState<string | null>(() => getStoredGoogleDriveToken(userKey));
+  const [gdriveUser, setGdriveUser] = useState<{ email?: string; name?: string } | null>(() => getGoogleDriveUserInfo(userKey));
+  const [gdriveSettings, setGdriveSettings] = useState(() => getGoogleDriveSettings(userKey));
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [driveStatusMsg, setDriveStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Account Picker / Connection Modal
   const [showAccountModal, setShowAccountModal] = useState(false);
-  const [customEmailInput, setCustomEmailInput] = useState(gdriveUser?.email || user?.email || '');
+  const [customEmailInput, setCustomEmailInput] = useState(user?.email || '');
 
   // Drive File List Modal
   const [showDriveModal, setShowDriveModal] = useState(false);
@@ -117,12 +119,18 @@ export const SettingsView: React.FC = () => {
   const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
   const [restoringFileId, setRestoringFileId] = useState<string | null>(null);
 
-  // Refresh Google Drive status on mount
+  // Refresh Google Drive & Snapshot status whenever current user changes
   useEffect(() => {
-    setGdriveToken(getStoredGoogleDriveToken());
-    setGdriveUser(getGoogleDriveUserInfo());
-    setSnapshots(getStoredSnapshots());
-  }, []);
+    const currentToken = getStoredGoogleDriveToken(userKey);
+    const currentUser = getGoogleDriveUserInfo(userKey);
+    setGdriveToken(currentToken);
+    setGdriveUser(currentUser);
+    setGdriveSettings(getGoogleDriveSettings(userKey));
+    setSnapshots(getStoredSnapshots(userKey));
+    setAutoBackupConfig(getAutoBackupConfig(userKey));
+    setCustomEmailInput(currentUser?.email || user?.email || '');
+    setDriveStatusMsg(null);
+  }, [userKey, user?.email]);
 
   const handleTestDatabase = async () => {
     setTestingDb(true);
@@ -195,22 +203,17 @@ export const SettingsView: React.FC = () => {
   };
 
   // Google Drive Connect with account
-  const handleConnectGoogleDrive = async (emailOverride?: string) => {
+  const handleConnectGoogleDrive = async () => {
     setIsConnectingDrive(true);
     setDriveStatusMsg(null);
     try {
-      const targetEmail = emailOverride || customEmailInput || user?.email || '';
-      let token: string;
-      if (emailOverride) {
-        token = connectUserGoogleAccount(emailOverride);
-      } else {
-        token = await requestGoogleDriveAccess(targetEmail);
-      }
-      setGdriveToken(token);
-      setGdriveUser(getGoogleDriveUserInfo());
+      const res = await requestGoogleDriveAccess(userKey);
+      setGdriveToken(res.token);
+      setGdriveUser({ email: res.email, name: res.name });
       setShowAccountModal(false);
+      const connectedEmail = res.email || getGoogleDriveUserInfo(userKey)?.email || 'আমার ড্রাইভ';
       setDriveStatusMsg({
-        text: `আপনার Google Account (${getGoogleDriveUserInfo()?.email || targetEmail || 'আমার ড্রাইভ'}) সফলভাবে সংযুক্ত হয়েছে! এখন সরাসরি এই ড্রাইভে ব্যাকআপ জমা হবে।`,
+        text: `✅ আপনার Google Account (${connectedEmail}) সফলভাবে সংযুক্ত হয়েছে! এখন সরাসরি এই অ্যাকাউন্টের Google Drive ফোল্ডারে ব্যাকআপ জমা হবে।`,
         type: 'success',
       });
     } catch (err: any) {
@@ -226,7 +229,7 @@ export const SettingsView: React.FC = () => {
 
   // Google Drive Disconnect
   const handleDisconnectGoogleDrive = () => {
-    clearGoogleDriveSession();
+    clearGoogleDriveSession(userKey);
     setGdriveToken(null);
     setGdriveUser(null);
     setDriveStatusMsg({
@@ -237,7 +240,7 @@ export const SettingsView: React.FC = () => {
 
   // Upload Now to Google Drive
   const handleUploadToGoogleDriveNow = async () => {
-    const token = gdriveToken || getStoredGoogleDriveToken();
+    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
     if (!token) {
       setShowAccountModal(true);
       return;
@@ -262,10 +265,10 @@ export const SettingsView: React.FC = () => {
       const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
       const fileName = `FINORA_DriveBackup_${dateStr}_${timeStr}.json`;
 
-      await uploadBackupFileToDrive(token, snapshot.data, fileName);
+      await uploadBackupFileToDrive(token, snapshot.data, fileName, userKey);
 
       // Also save locally as snapshot
-      const updatedSnapshots = saveSnapshot(snapshot);
+      const updatedSnapshots = saveSnapshot(snapshot, 10, userKey);
       setSnapshots(updatedSnapshots);
 
       const targetAccount = gdriveUser?.email || user?.email || 'আপনার নির্বাচিত Google একাউন্ট';
@@ -273,10 +276,16 @@ export const SettingsView: React.FC = () => {
         text: `✅ (${targetAccount}) Google Drive ফোল্ডারে "${fileName}" সফলভাবে আপলোড হয়েছে!`,
         type: 'success',
       });
+
+      // If modal is open, refresh files
+      if (showDriveModal) {
+        const files = await listDriveBackups(token, userKey);
+        setDriveFiles(files);
+      }
     } catch (err: any) {
       console.error('Google Drive Upload error:', err);
       if (err.message && (err.message.includes('401') || err.message.includes('Invalid Credentials') || err.message.includes('Google Drive API error'))) {
-        clearGoogleDriveSession();
+        clearGoogleDriveSession(userKey);
         setGdriveToken(null);
         setDriveStatusMsg({
           text: 'Google Drive সেশন মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে পুনরায় অ্যাকাউন্ট নির্বাচন করুন।',
@@ -296,7 +305,7 @@ export const SettingsView: React.FC = () => {
 
   // Open Drive Backups Modal & Fetch List
   const handleOpenDriveModal = async () => {
-    const token = gdriveToken || getStoredGoogleDriveToken();
+    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
     if (!token) {
       setShowAccountModal(true);
       return;
@@ -305,12 +314,12 @@ export const SettingsView: React.FC = () => {
     setShowDriveModal(true);
     setIsLoadingDriveFiles(true);
     try {
-      const files = await listDriveBackups(token);
+      const files = await listDriveBackups(token, userKey);
       setDriveFiles(files);
     } catch (err: any) {
       console.error(err);
       if (err.message && err.message.includes('401')) {
-        clearGoogleDriveSession();
+        clearGoogleDriveSession(userKey);
         setGdriveToken(null);
         alert('Google সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার সাইন ইন করুন।');
         setShowDriveModal(false);
@@ -322,7 +331,7 @@ export const SettingsView: React.FC = () => {
 
   // Restore file from Google Drive
   const handleRestoreFromDriveFile = async (file: GoogleDriveFile) => {
-    const token = gdriveToken || getStoredGoogleDriveToken();
+    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
     if (!token) return;
 
     const confirmMsg = `আপনি কি Google Drive এর "${file.name}" ব্যাকআপ ফাইলটি থেকে ডেটা রিস্টোর করতে চান? আপনার বর্তমান হিসাব এই ব্যাকআপের তথ্য দ্বারা প্রতিস্থাপিত হবে।`;
@@ -330,7 +339,7 @@ export const SettingsView: React.FC = () => {
 
     setRestoringFileId(file.id);
     try {
-      const fileData = await downloadDriveBackupContent(token, file.id);
+      const fileData = await downloadDriveBackupContent(token, file.id, userKey);
       const importFn = importFullDataJSON || importDataJSON;
       const res = typeof importFn === 'function' ? await importFn(fileData) : false;
       if (res === true || (typeof res === 'object' && res?.success)) {
@@ -352,13 +361,13 @@ export const SettingsView: React.FC = () => {
 
   // Delete file from Google Drive
   const handleDeleteDriveFile = async (fileId: string) => {
-    const token = gdriveToken || getStoredGoogleDriveToken();
+    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
     if (!token) return;
 
     if (!window.confirm('আপনি কি Google Drive থেকে এই ব্যাকআপ ফাইলটি মুছে ফেলতে চান?')) return;
 
     try {
-      await deleteDriveBackupFile(token, fileId);
+      await deleteDriveBackupFile(token, fileId, userKey);
       setDriveFiles((prev) => prev.filter((f) => f.id !== fileId));
       setDriveStatusMsg({
         text: '✅ ব্যাকআপ ফাইলটি সফলভাবে মুছে ফেলা হয়েছে।',
@@ -385,7 +394,7 @@ export const SettingsView: React.FC = () => {
         categories,
       }, 'manual');
 
-      const updated = saveSnapshot(snapshot);
+      const updated = saveSnapshot(snapshot, 10, userKey);
       setSnapshots(updated);
 
       const now = new Date();
@@ -393,7 +402,7 @@ export const SettingsView: React.FC = () => {
       const updatedConfig = saveAutoBackupConfig({
         lastBackupDate: todayStr,
         lastBackupTimestamp: now.toISOString(),
-      });
+      }, userKey);
       setAutoBackupConfig(updatedConfig);
 
       setSnapshotMessage('✅ নতুন ব্যাকআপ স্ন্যাপশট সফলভাবে সংরক্ষিত হয়েছে!');
@@ -425,7 +434,7 @@ export const SettingsView: React.FC = () => {
   // Delete a local snapshot
   const handleDeleteSnapshot = (id: string) => {
     if (window.confirm('আপনি কি এই ব্যাকআপ স্ন্যাপশটটি মুছে ফেলতে চান?')) {
-      const updated = deleteStoredSnapshot(id);
+      const updated = deleteStoredSnapshot(id, userKey);
       setSnapshots(updated);
     }
   };
@@ -1112,7 +1121,7 @@ export const SettingsView: React.FC = () => {
       {/* Google Drive Account Selection Modal */}
       {showAccountModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
             
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1121,9 +1130,9 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Google Account নির্বাচন ও ব্যাকআপ সংযোগ
+                    Google Account নির্বাচন ও অনুমোদন
                   </h3>
-                  <p className="text-[11px] text-slate-500">আপনার নিজস্ব Google Drive অ্যাকাউন্টে ব্যাকআপ সংরক্ষণ করুন</p>
+                  <p className="text-[11px] text-slate-500">আপনার যেকোনো ব্যক্তিগত Google Drive যুক্ত করুন</p>
                 </div>
               </div>
               <button
@@ -1136,72 +1145,42 @@ export const SettingsView: React.FC = () => {
 
             <div className="space-y-4">
               <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 rounded-xl text-xs text-blue-900 dark:text-blue-200">
-                <p className="font-semibold mb-1">🔒 সম্পূর্ণ ব্যক্তিগত ও সুরক্ষিত:</p>
+                <p className="font-semibold mb-1">🔒 রিয়েল-টাইম ক্লাউড ব্যাকআপ:</p>
                 <p className="text-[11px] leading-relaxed text-blue-800 dark:text-blue-300">
-                  আপনার ফাইন্যান্সিয়াল ডাটা কেবল আপনার পছন্দ করা Google Drive ফোল্ডারে (<code className="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 rounded">FINORA_Financial_Backups</code>) ব্যাকআপ হবে। অন্য কোনো অ্যাকাউন্টে ডাটা শেয়ার হবে না।
+                  নিচের বাটনে চাপ দিলে Google-এর অফিসিয়াল অথেনটিকেশন পপ-আপ ওপেন হবে। সেখান থেকে আপনার ডিভাইসের যেকোনো জিমেইল অ্যাকাউন্ট সিলেক্ট করে Google Drive পারমিশন প্রদান করুন। নির্বাচিত অ্যাকাউন্টের <code className="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 rounded">FINORA_Financial_Backups</code> ফোল্ডারে ফাইল সংরক্ষিত হবে।
                 </p>
-              </div>
-
-              {/* Enter Custom Gmail Address */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                  আপনার Google / Gmail অ্যাকাউন্ট ইমেইল লিখুন:
-                </label>
-                <input
-                  type="email"
-                  value={customEmailInput}
-                  onChange={(e) => setCustomEmailInput(e.target.value)}
-                  placeholder="e.g. yourname@gmail.com"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-                />
-                {user?.email && user.email !== customEmailInput && (
-                  <p className="text-[11px] text-slate-500">
-                    বর্তমান লগইন আইডি: <button type="button" onClick={() => setCustomEmailInput(user.email || '')} className="text-blue-500 hover:underline font-semibold">{user.email}</button>
-                  </p>
-                )}
-              </div>
-
-              {/* Primary Connect Button */}
-              <button
-                type="button"
-                onClick={() => handleConnectGoogleDrive(customEmailInput)}
-                disabled={!customEmailInput.trim() || isConnectingDrive}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isConnectingDrive ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>সংযুক্ত করা হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>এই অ্যাকাউন্টে ড্রাইভ ব্যাকআপ যুক্ত করুন</span>
-                  </>
-                )}
-              </button>
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
-                <span className="flex-shrink mx-3 text-[11px] text-slate-400">অথবা পপ-আপ দিয়ে অ্যাকাউন্ট বেছে নিন</span>
-                <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
               </div>
 
               {/* Google OAuth Account Chooser Button */}
               <button
                 type="button"
-                onClick={() => handleConnectGoogleDrive()}
+                onClick={handleConnectGoogleDrive}
                 disabled={isConnectingDrive}
-                className="w-full py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2.5 cursor-pointer shadow-xs"
+                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span>Google Account Chooser (পপ-আপ দিয়ে অ্যাকাউন্ট নির্বাচন)</span>
+                {isConnectingDrive ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Google একাউন্ট কানেক্ট হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                      <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>গুগল অ্যাকাউন্ট নির্বাচন ও পারমিশন দিন</span>
+                  </>
+                )}
               </button>
+
+              {gdriveUser?.email && (
+                <p className="text-[11px] text-center text-slate-500">
+                  বর্তমানে সংযুক্ত: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{gdriveUser.email}</span>
+                </p>
+              )}
             </div>
 
             <div className="border-t border-slate-100 dark:border-slate-800 pt-3 flex justify-end">
