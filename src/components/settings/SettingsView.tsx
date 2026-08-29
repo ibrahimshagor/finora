@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
   Globe, 
@@ -19,12 +19,43 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  UserCheck
+  UserCheck,
+  HardDrive,
+  Clock,
+  Calendar,
+  FolderDown,
+  History,
+  FileJson,
+  X
 } from 'lucide-react';
 import { useFinance } from '../../context/FinancialContext';
 import { useAuth } from '../../context/AuthContext';
-import { CURRENCIES } from '../../lib/constants';
+import { CURRENCIES, APP_INFO } from '../../lib/constants';
 import { testFirebaseConnection } from '../../lib/firebase';
+import { 
+  getAutoBackupConfig, 
+  saveAutoBackupConfig, 
+  getStoredSnapshots, 
+  createBackupSnapshot, 
+  saveSnapshot, 
+  deleteStoredSnapshot,
+  downloadSnapshotAsFile,
+  BackupSnapshot,
+  AutoBackupConfig
+} from '../../lib/autoBackupManager';
+import { 
+  requestGoogleDriveAccess, 
+  getStoredGoogleDriveToken, 
+  clearGoogleDriveSession, 
+  getGoogleDriveUserInfo,
+  getGoogleDriveSettings,
+  saveGoogleDriveSettings,
+  uploadBackupFileToDrive,
+  listDriveBackups,
+  downloadDriveBackupContent,
+  deleteDriveBackupFile,
+  GoogleDriveFile
+} from '../../lib/googleDriveBackup';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -41,6 +72,7 @@ export const SettingsView: React.FC = () => {
     savingsGoals, 
     bills, 
     investments,
+    categories,
     syncStatus,
     exportFullDataJSON,
     exportDataJSON,
@@ -51,9 +83,38 @@ export const SettingsView: React.FC = () => {
   } = useFinance();
 
   const { user, isGuestMode } = useAuth();
+  
+  // Status states
   const [importStatus, setImportStatus] = useState<string>('');
   const [testingDb, setTestingDb] = useState<boolean>(false);
   const [dbTestResult, setDbTestResult] = useState<string | null>(null);
+
+  // Auto Backup Config & Snapshot state
+  const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
+  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(getStoredSnapshots());
+  const [isTakingSnapshot, setIsTakingSnapshot] = useState(false);
+  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+
+  // Google Drive state
+  const [gdriveToken, setGdriveToken] = useState<string | null>(getStoredGoogleDriveToken());
+  const [gdriveUser, setGdriveUser] = useState<{ email?: string; name?: string } | null>(getGoogleDriveUserInfo());
+  const [gdriveSettings, setGdriveSettings] = useState(getGoogleDriveSettings());
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [driveStatusMsg, setDriveStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Drive File List Modal
+  const [showDriveModal, setShowDriveModal] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
+  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
+  const [restoringFileId, setRestoringFileId] = useState<string | null>(null);
+
+  // Refresh Google Drive status on mount
+  useEffect(() => {
+    setGdriveToken(getStoredGoogleDriveToken());
+    setGdriveUser(getGoogleDriveUserInfo());
+    setSnapshots(getStoredSnapshots());
+  }, []);
 
   const handleTestDatabase = async () => {
     setTestingDb(true);
@@ -86,13 +147,14 @@ export const SettingsView: React.FC = () => {
         savingsGoals,
         bills,
         investments,
+        categories,
       }, null, 2);
       
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `FINORA_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `FINORA_ManualBackup_${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -124,24 +186,575 @@ export const SettingsView: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // Google Drive Connect
+  const handleConnectGoogleDrive = async () => {
+    setIsConnectingDrive(true);
+    setDriveStatusMsg(null);
+    try {
+      const token = await requestGoogleDriveAccess();
+      setGdriveToken(token);
+      setGdriveUser(getGoogleDriveUserInfo());
+      setDriveStatusMsg({
+        text: 'আপনার Google Drive সফলভাবে সংযুক্ত হয়েছে! এখন স্বয়ংক্রিয় ও ম্যানুয়াল ব্যাকআপ সরাসরি আপনার ড্রাইভে জমা হবে।',
+        type: 'success',
+      });
+    } catch (err: any) {
+      console.error(err);
+      setDriveStatusMsg({
+        text: err.message || 'Google Drive সংযোগ ব্যর্থ হয়েছে। পপ-আপ অনুমতি প্রদান করুন।',
+        type: 'error',
+      });
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  // Google Drive Disconnect
+  const handleDisconnectGoogleDrive = () => {
+    clearGoogleDriveSession();
+    setGdriveToken(null);
+    setGdriveUser(null);
+    setDriveStatusMsg({
+      text: 'Google Drive সংযোগ বিচ্ছিন্ন করা হয়েছে।',
+      type: 'success',
+    });
+  };
+
+  // Upload Now to Google Drive
+  const handleUploadToGoogleDriveNow = async () => {
+    const token = gdriveToken || getStoredGoogleDriveToken();
+    if (!token) {
+      handleConnectGoogleDrive();
+      return;
+    }
+
+    setIsUploadingDrive(true);
+    setDriveStatusMsg(null);
+    try {
+      const snapshot = createBackupSnapshot({
+        accounts,
+        transactions,
+        loans,
+        budgets,
+        savingsGoals,
+        bills,
+        investments,
+        categories,
+      }, 'manual');
+
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+      const fileName = `FINORA_DriveBackup_${dateStr}_${timeStr}.json`;
+
+      await uploadBackupFileToDrive(token, snapshot.data, fileName);
+
+      // Also save locally as snapshot
+      const updatedSnapshots = saveSnapshot(snapshot);
+      setSnapshots(updatedSnapshots);
+
+      setDriveStatusMsg({
+        text: `✅ আপনার Google Drive ফোল্ডারে "${fileName}" সফলভাবে আপলোড হয়েছে!`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      console.error('Google Drive Upload error:', err);
+      // Check if token expired
+      if (err.message && (err.message.includes('401') || err.message.includes('Invalid Credentials') || err.message.includes('Google Drive API error'))) {
+        clearGoogleDriveSession();
+        setGdriveToken(null);
+        setDriveStatusMsg({
+          text: 'Google Drive সেশন মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে পুনরায় "Google Drive সংযোগ করুন" বাটনে চাপুন।',
+          type: 'error',
+        });
+      } else {
+        setDriveStatusMsg({
+          text: `Google Drive এ আপলোড ব্যর্থ হয়েছে: ${err.message}`,
+          type: 'error',
+        });
+      }
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  };
+
+  // Open Drive Backups Modal & Fetch List
+  const handleOpenDriveModal = async () => {
+    const token = gdriveToken || getStoredGoogleDriveToken();
+    if (!token) {
+      handleConnectGoogleDrive();
+      return;
+    }
+
+    setShowDriveModal(true);
+    setIsLoadingDriveFiles(true);
+    try {
+      const files = await listDriveBackups(token);
+      setDriveFiles(files);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message && err.message.includes('401')) {
+        clearGoogleDriveSession();
+        setGdriveToken(null);
+        alert('Google সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার সাইন ইন করুন।');
+        setShowDriveModal(false);
+      }
+    } finally {
+      setIsLoadingDriveFiles(false);
+    }
+  };
+
+  // Restore file from Google Drive
+  const handleRestoreFromDriveFile = async (file: GoogleDriveFile) => {
+    const token = gdriveToken || getStoredGoogleDriveToken();
+    if (!token) return;
+
+    const confirmMsg = `আপনি কি Google Drive এর "${file.name}" ব্যাকআপ ফাইলটি থেকে ডেটা রিস্টোর করতে চান? বর্তমান ডেটা ব্যাকআপের তথ্য দ্বারা প্রতিস্থাপিত হবে।`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setRestoringFileId(file.id);
+    try {
+      const fileData = await downloadDriveBackupContent(token, file.id);
+      const importFn = importFullDataJSON || importDataJSON;
+      const res = typeof importFn === 'function' ? await importFn(JSON.stringify(fileData)) : false;
+      if (res === true || (typeof res === 'object' && res?.success)) {
+        alert('✅ Google Drive থেকে সফলভাবে ডেটা রিস্টোর করা হয়েছে!');
+        setShowDriveModal(false);
+      } else {
+        alert('❌ ব্যাকআপ ফাইলটি সঠিক ফরম্যাটে ছিল না।');
+      }
+    } catch (err: any) {
+      alert(`রিস্টোর ব্যর্থ হয়েছে: ${err.message}`);
+    } finally {
+      setRestoringFileId(null);
+    }
+  };
+
+  // Delete file from Google Drive
+  const handleDeleteDriveFile = async (fileId: string) => {
+    const token = gdriveToken || getStoredGoogleDriveToken();
+    if (!token) return;
+
+    if (!window.confirm('আপনি কি Google Drive থেকে এই ব্যাকআপ ফাইলটি মুছে ফেলতে চান?')) return;
+
+    try {
+      await deleteDriveBackupFile(token, fileId);
+      setDriveFiles((prev) => prev.filter((f) => f.id !== fileId));
+    } catch (err: any) {
+      alert(`মুছতে ব্যর্থ হয়েছে: ${err.message}`);
+    }
+  };
+
+  // Take Snapshot locally now
+  const handleTakeSnapshotNow = () => {
+    setIsTakingSnapshot(true);
+    setSnapshotMessage(null);
+    try {
+      const snapshot = createBackupSnapshot({
+        accounts,
+        transactions,
+        loans,
+        budgets,
+        savingsGoals,
+        bills,
+        investments,
+        categories,
+      }, 'manual');
+
+      const updated = saveSnapshot(snapshot);
+      setSnapshots(updated);
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const updatedConfig = saveAutoBackupConfig({
+        lastBackupDate: todayStr,
+        lastBackupTimestamp: now.toISOString(),
+      });
+      setAutoBackupConfig(updatedConfig);
+
+      setSnapshotMessage('✅ নতুন ব্যাকআপ স্ন্যাপশট সফলভাবে সংরক্ষিত হয়েছে!');
+    } catch (err: any) {
+      setSnapshotMessage(`❌ স্ন্যাপশট নিতে সমস্যা হয়েছে: ${err.message}`);
+    } finally {
+      setIsTakingSnapshot(false);
+    }
+  };
+
+  // Restore a local snapshot
+  const handleRestoreSnapshot = async (snapshot: BackupSnapshot) => {
+    const confirmMsg = `আপনি কি ${snapshot.dateLabel} (${snapshot.timeLabel}) এর ব্যাকআপ স্ন্যাপশটটি রিস্টোর করতে চান?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const importFn = importFullDataJSON || importDataJSON;
+      const res = typeof importFn === 'function' ? await importFn(JSON.stringify(snapshot.data)) : false;
+      if (res === true || (typeof res === 'object' && res?.success)) {
+        alert('✅ স্ন্যাপশট থেকে ডেটা সফলভাবে রিস্টোর করা হয়েছে!');
+      } else {
+        alert('❌ রিস্টোর সম্পন্ন করা যায়নি।');
+      }
+    } catch (err: any) {
+      alert(`রিস্টোর ব্যর্থ: ${err.message}`);
+    }
+  };
+
+  // Delete a local snapshot
+  const handleDeleteSnapshot = (id: string) => {
+    if (window.confirm('আপনি কি এই ব্যাকআপ স্ন্যাপশটটি মুছে ফেলতে চান?')) {
+      const updated = deleteStoredSnapshot(id);
+      setSnapshots(updated);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12 max-w-4xl mx-auto">
       
-      {/* Header */}
+      {/* Page Title */}
       <div>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          সেটিংস ও ডেটা ব্যবস্থাপনা (Settings & Data Hub)
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          <span>সেটিংস ও ডেটা হাব (Settings & Data Hub)</span>
         </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          অ্যাপ প্রেফারেন্স, মুদ্রা নির্বাচন, প্রাইভেসি মোড, ক্লাউড ফায়ারবেস স্থিতি এবং ব্যাকআপ।
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          অ্যাপ প্রেফারেন্স, গুগল ড্রাইভ ক্লাউড ব্যাকআপ, দৈনিক অটো ব্যাকআপ শিডিউল ও ডেটাবেস সিঙ্ক।
         </p>
       </div>
 
-      {/* Preferences Section */}
+      {/* 1. Google Drive Personal Account Cloud Backup Section */}
+      <div className="bg-gradient-to-br from-white via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 rounded-2xl p-6 border border-emerald-500/30 dark:border-emerald-500/20 shadow-sm space-y-5 relative overflow-hidden">
+        
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center shrink-0">
+              <HardDrive className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Google Drive ব্যক্তিগত ক্লাউড ব্যাকআপ (Personal Cloud Backup)
+                </h3>
+                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 rounded-md text-[10px] font-bold">
+                  Online Drive
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                আপনার নিজস্ব ব্যক্তিগত জিমেইল গুগল ড্রাইভে প্রতিদিনের সম্পূর্ণ হিসাব সুরক্ষিত ফোল্ডারে ব্যাকআপ রাখুন।
+              </p>
+            </div>
+          </div>
+
+          {/* Connection Pill */}
+          <div className="shrink-0">
+            {gdriveToken ? (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>ড্রাইভ সংযুক্ত: <strong>{gdriveUser?.email || user?.email || 'আমার গুগল একাউন্ট'}</strong></span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <Cloud className="w-4 h-4 text-slate-400" />
+                <span>ড্রাইভ এখনো সংযুক্ত নয়</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+          
+          {/* Connect / Disconnect */}
+          {!gdriveToken ? (
+            <button
+              type="button"
+              onClick={handleConnectGoogleDrive}
+              disabled={isConnectingDrive}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+            >
+              {isConnectingDrive ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>সংযোগ করা হচ্ছে...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  </svg>
+                  <span>Google Drive সংযোগ করুন</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleDisconnectGoogleDrive}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+            >
+              <span>সংযোগ বিচ্ছিন্ন করুন</span>
+            </button>
+          )}
+
+          {/* Upload Backup Now to Drive */}
+          <button
+            type="button"
+            onClick={handleUploadToGoogleDriveNow}
+            disabled={isUploadingDrive}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+          >
+            {isUploadingDrive ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>ড্রাইভে আপলোড হচ্ছে...</span>
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                <span>এখনই Google Drive এ ব্যাকআপ তুলুন</span>
+              </>
+            )}
+          </button>
+
+          {/* Browse & Restore from Drive */}
+          <button
+            type="button"
+            onClick={handleOpenDriveModal}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors border border-slate-700"
+          >
+            <FolderDown className="w-4 h-4 text-emerald-400" />
+            <span>ড্রাইভ ব্যাকআপ তালিকা ও রিস্টোর</span>
+          </button>
+
+        </div>
+
+        {/* Google Drive Auto Sync Toggle & Time */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="gdrive_autosync"
+              checked={gdriveSettings.autoSync}
+              onChange={(e) => {
+                const updated = { ...gdriveSettings, autoSync: e.target.checked };
+                setGdriveSettings(updated);
+                saveGoogleDriveSettings(updated);
+              }}
+              className="w-4 h-4 text-emerald-600 rounded-sm focus:ring-emerald-500"
+            />
+            <label htmlFor="gdrive_autosync" className="font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+              প্রতিদিনের ব্যাকআপ স্বয়ংক্রিয়ভাবে Google Drive এ আপলোড করুন (Daily Auto Cloud Sync)
+            </label>
+          </div>
+
+          <span className="text-[11px] text-slate-400">
+            গুগল ড্রাইভ ফোল্ডার: <code className="text-emerald-600 dark:text-emerald-400 font-mono">FINORA_Financial_Backups</code>
+          </span>
+        </div>
+
+        {/* Status Message */}
+        {driveStatusMsg && (
+          <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+            driveStatusMsg.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+              : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+          }`}>
+            {driveStatusMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{driveStatusMsg.text}</span>
+          </div>
+        )}
+
+      </div>
+
+      {/* 2. Daily Automated Backup Scheduler & Snapshot History */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>দৈনিক স্বয়ংক্রিয় ব্যাকআপ ও স্ন্যাপশট শিডিউলার (Daily Automated Backup)</span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              প্রতিদিন একটি নির্দিষ্ট সময়ে স্বয়ংক্রিয়ভাবে পূর্ণাঙ্গ ব্যাকআপ তৈরি হয় ও স্ন্যাপশট হিস্ট্রিতে সংরক্ষিত থাকে।
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleTakeSnapshotNow}
+            disabled={isTakingSnapshot}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-semibold border border-emerald-200 dark:border-emerald-800 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{isTakingSnapshot ? 'তৈরি হচ্ছে...' : 'এখনই নতুন স্ন্যাপশট নিন'}</span>
+          </button>
+        </div>
+
+        {/* Scheduler Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+          
+          {/* Enable Toggle */}
+          <div>
+            <span className="text-[11px] text-slate-400 font-semibold block mb-1.5">
+              স্বয়ংক্রিয় দৈনিক ব্যাকআপ
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="auto_backup_enabled"
+                checked={autoBackupConfig.enabled}
+                onChange={(e) => {
+                  const updated = saveAutoBackupConfig({ enabled: e.target.checked });
+                  setAutoBackupConfig(updated);
+                }}
+                className="w-4 h-4 text-emerald-600 rounded-sm focus:ring-emerald-500 cursor-pointer"
+              />
+              <label htmlFor="auto_backup_enabled" className="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
+                {autoBackupConfig.enabled ? 'সক্রিয় (ON - প্রতিদিন চলবে)' : 'নিষ্ক্রিয় (OFF)'}
+              </label>
+            </div>
+          </div>
+
+          {/* Time Picker */}
+          <div>
+            <span className="text-[11px] text-slate-400 font-semibold block mb-1.5">
+              ব্যাকআপের নির্ধারিত সময় (Scheduled Time)
+            </span>
+            <select
+              value={autoBackupConfig.scheduledTime || '23:00'}
+              onChange={(e) => {
+                const updated = saveAutoBackupConfig({ scheduledTime: e.target.value });
+                setAutoBackupConfig(updated);
+              }}
+              className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="06:00">সকাল ০৬:০০ টা (06:00 AM)</option>
+              <option value="09:00">সকাল ০৯:০০ টা (09:00 AM)</option>
+              <option value="12:00">দুপুর ১২:০০ টা (12:00 PM)</option>
+              <option value="18:00">সন্ধ্যা ০৬:০০ টা (06:00 PM)</option>
+              <option value="21:00">রাত ০৯:০০ টা (09:00 PM)</option>
+              <option value="23:00">রাত ১১:০০ টা (11:00 PM - ডিফল্ট)</option>
+              <option value="00:00">রাত ১২:০০ টা (12:00 AM)</option>
+            </select>
+          </div>
+
+          {/* Last Backup Date Badge */}
+          <div>
+            <span className="text-[11px] text-slate-400 font-semibold block mb-1.5">
+              সর্বশেষ ব্যাকআপের স্থিতি
+            </span>
+            <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span>
+                {autoBackupConfig.lastBackupDate 
+                  ? `${autoBackupConfig.lastBackupDate} এ সম্পন্ন` 
+                  : 'আজকের নির্ধারিত সময়ে স্বয়ংক্রিয় ব্যাকআপ নেওয়া হবে'}
+              </span>
+            </div>
+          </div>
+
+        </div>
+
+        {snapshotMessage && (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>{snapshotMessage}</span>
+          </div>
+        )}
+
+        {/* Local Snapshot History Table */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <History className="w-4 h-4 text-slate-400" />
+              <span>সংরক্ষিত স্ন্যাপশট ও রোলব্যাক হিস্ট্রি (History & Instant Rollback)</span>
+            </h4>
+            <span className="text-[11px] text-slate-400 font-mono">
+              মোট: {snapshots.length} টি স্ন্যাপশট
+            </span>
+          </div>
+
+          {snapshots.length === 0 ? (
+            <div className="p-6 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-400">
+              কোনো পূর্ববর্তী স্ন্যাপশট পাওয়া যায়নি। উপরের "এখনই নতুন স্ন্যাপশট নিন" বাটনে ক্লিক করে প্রথম ব্যাকআপ স্ন্যাপশট তৈরি করুন।
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-4 py-2.5">তারিখ ও সময়</th>
+                    <th className="px-4 py-2.5">ধরন</th>
+                    <th className="px-4 py-2.5">রেকর্ড সংখ্যা</th>
+                    <th className="px-4 py-2.5">সাইজ</th>
+                    <th className="px-4 py-2.5 text-right">অ্যাকশন</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {snapshots.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="px-4 py-2.5 font-mono text-slate-800 dark:text-slate-200">
+                        {s.dateLabel} <span className="text-[11px] text-slate-400">({s.timeLabel})</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.triggerType === 'auto_daily'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                        }`}>
+                          {s.triggerType === 'auto_daily' ? 'দৈনিক অটো' : 'ম্যানুয়াল'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400 font-mono">
+                        {s.totalRecords} টি রেকর্ড
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 font-mono text-[11px]">
+                        {s.dataSizeKB} KB
+                      </td>
+                      <td className="px-4 py-2.5 text-right space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreSnapshot(s)}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          রিস্টোর
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadSnapshotAsFile(s)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-semibold"
+                          title="JSON ডাউনলোড করুন"
+                        >
+                          <Download className="w-3.5 h-3.5 inline" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSnapshot(s.id)}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded-lg"
+                          title="মুছে ফেলুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+      </div>
+
+      {/* 3. General Preferences Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-6">
         <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
           <Settings className="w-4 h-4 text-emerald-600" />
-          <span>ব্যবহারকারীর পছন্দ (Preferences)</span>
+          <span>ব্যবহারকারীর সাধারণ পছন্দ (App Preferences)</span>
         </h3>
 
         {/* Currency Selection */}
@@ -168,7 +781,7 @@ export const SettingsView: React.FC = () => {
           </select>
         </div>
 
-        {/* Privacy Mode - Enhanced & Fully Responsive Toggle */}
+        {/* Privacy Mode */}
         <div className="flex items-center justify-between py-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <div className="flex items-center gap-2">
@@ -219,7 +832,7 @@ export const SettingsView: React.FC = () => {
 
       </div>
 
-      {/* Cloud & Firebase Database Verification Section */}
+      {/* 4. Cloud & Firebase Live Database Status */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -246,10 +859,10 @@ export const SettingsView: React.FC = () => {
         {/* Status Indicators Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-            <span className="text-[11px] text-slate-400 block">ব্যবহারকারীর ধরন</span>
-            <div className="flex items-center gap-1.5 mt-1 font-semibold text-xs text-slate-800 dark:text-slate-200">
-              <UserCheck className="w-4 h-4 text-emerald-500" />
-              <span>{user?.email || (isGuestMode ? 'অফলাইন গেস্ট মোড' : 'সরাসরি ইউজার সেশন')}</span>
+            <span className="text-[11px] text-slate-400 block">ব্যবহারকারীর অ্যাকাউন্ট</span>
+            <div className="flex items-center gap-1.5 mt-1 font-semibold text-xs text-slate-800 dark:text-slate-200 truncate">
+              <UserCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span className="truncate">{user?.email || (isGuestMode ? 'ডেমো গেস্ট মোড' : 'সরাসরি ইউজার সেশন')}</span>
             </div>
           </div>
 
@@ -291,11 +904,11 @@ export const SettingsView: React.FC = () => {
 
       </div>
 
-      {/* Data Backup & Restore Section */}
+      {/* 5. Manual JSON Export & Import Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-6">
         <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
           <Database className="w-4 h-4 text-emerald-600" />
-          <span>ডেটা ব্যাকআপ ও রিস্টোর (Backup & Offline Storage)</span>
+          <span>ম্যানুয়াল ফাইল ব্যাকআপ ও রিস্টোর (Manual JSON File Backup)</span>
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -304,7 +917,7 @@ export const SettingsView: React.FC = () => {
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
             <div>
               <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                সম্পূর্ণ ডেটা ব্যাকআপ ডাউনলোড
+                সম্পূর্ণ ডেটা JSON ফাইল হিসেবে ডাউনলোড
               </h4>
               <p className="text-[11px] text-slate-400 mt-1">
                 আপনার সকল অ্যাকাউন্ট, লেনদেন, ঋণ, বাজেট ও বিলের সম্পূর্ণ অফলাইন JSON ফাইল সংরক্ষণ করুন।
@@ -377,7 +990,7 @@ export const SettingsView: React.FC = () => {
 
       </div>
 
-      {/* App & Developer Credits (Strict User Constraint Requirement) */}
+      {/* App & Developer Credits (Strict Constraint Requirement) */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md relative overflow-hidden">
         <div className="absolute -right-8 -bottom-8 opacity-10 text-white">
           <Sparkles className="w-48 h-48" />
@@ -405,22 +1018,125 @@ export const SettingsView: React.FC = () => {
           <div className="pt-3 border-t border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
             <div>
               <p className="text-slate-400">
-                Developed by: <strong className="text-white">Md. Ibrahim Hossain</strong>
+                Developed by: <strong className="text-white">{APP_INFO.developedBy}</strong>
               </p>
               <p className="text-slate-400 mt-0.5">
-                Powered by: <a href="https://www.tikmerk.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 font-bold hover:underline inline-flex items-center gap-1">TIKMERK IT <ExternalLink className="w-3 h-3" /></a>
+                Powered by: <a href="https://www.tikmerk.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 font-bold hover:underline inline-flex items-center gap-1">{APP_INFO.poweredBy} <ExternalLink className="w-3 h-3" /></a>
               </p>
             </div>
 
             <div className="text-[11px] text-slate-400">
-              Version 1.0.0 • Cloud Ready & Offline First
+              Version 2.5.0 • Google Drive Cloud & Automated Daily Backup Ready
             </div>
           </div>
 
         </div>
       </div>
 
+      {/* Google Drive Backups List & Restore Modal */}
+      {showDriveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-5 h-5 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Google Drive সংরক্ষিত ব্যাকআপ ফাইলসমূহ
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowDriveModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {isLoadingDriveFiles ? (
+                <div className="p-8 text-center space-y-2">
+                  <RefreshCw className="w-6 h-6 text-emerald-500 animate-spin mx-auto" />
+                  <p className="text-xs text-slate-500">গুগল ড্রাইভ ফোল্ডার থেকে ব্যাকআপ লোড করা হচ্ছে...</p>
+                </div>
+              ) : driveFiles.length === 0 ? (
+                <div className="p-8 text-center space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700">
+                  <FileJson className="w-8 h-8 text-slate-400 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    আপনার Google Drive ফোল্ডারে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি।
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    "এখনই Google Drive এ ব্যাকআপ তুলুন" বাটনে ক্লিক করে নতুন ব্যাকআপ ফাইল আপলোড করুন।
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {driveFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 flex items-center justify-between gap-3 hover:border-emerald-500/50 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <FileJson className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {file.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
+                          <span>তৈরির তারিখ: {new Date(file.createdTime).toLocaleString('bn-BD')}</span>
+                          {file.size && <span>• আকার: {Math.round(parseInt(file.size, 10) / 1024)} KB</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreFromDriveFile(file)}
+                          disabled={restoringFileId === file.id}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {restoringFileId === file.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>রিস্টোর হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <span>রিস্টোর করুন</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDriveFile(file.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          title="মুছে ফেলুন"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                ড্রাইভ ফোল্ডার: <strong>FINORA_Financial_Backups</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDriveModal(false)}
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
-

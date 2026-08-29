@@ -30,6 +30,17 @@ import {
   DEFAULT_EXPENSE_CATEGORIES, 
   CURRENCIES 
 } from '../lib/constants';
+import { 
+  getAutoBackupConfig, 
+  saveAutoBackupConfig, 
+  createBackupSnapshot, 
+  saveSnapshot 
+} from '../lib/autoBackupManager';
+import { 
+  getStoredGoogleDriveToken, 
+  uploadBackupFileToDrive, 
+  getGoogleDriveSettings 
+} from '../lib/googleDriveBackup';
 
 interface FinancialContextType {
   accounts: Account[];
@@ -592,6 +603,77 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       unsubscribers.forEach((u) => u());
     };
   }, [user, isGuest, loadFromLocalStorage, saveToLocalStorage]);
+
+  // Automated Daily Backup Engine (Runs background checks and syncs with Google Drive & Local Storage)
+  useEffect(() => {
+    if (!accounts || accounts.length === 0) return;
+
+    const performDailyBackupCheck = async () => {
+      try {
+        const config = getAutoBackupConfig();
+        if (!config.enabled) return;
+
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+
+        // Parse scheduled time e.g. "23:00"
+        const [targetHourStr, targetMinuteStr] = (config.scheduledTime || '23:00').split(':');
+        const targetHour = parseInt(targetHourStr, 10) || 23;
+        const targetMinute = parseInt(targetMinuteStr, 10) || 0;
+
+        // Check if today hasn't been backed up yet and current time >= scheduled time
+        const alreadyBackedUpToday = config.lastBackupDate === todayStr;
+        const isPastOrAtScheduledTime = 
+          currentHour > targetHour || (currentHour === targetHour && currentMinute >= targetMinute);
+
+        if (!alreadyBackedUpToday && isPastOrAtScheduledTime) {
+          // Take snapshot
+          const snapshot = createBackupSnapshot({
+            accounts,
+            transactions,
+            loans,
+            budgets,
+            savingsGoals,
+            bills,
+            investments,
+            categories,
+          }, 'auto_daily');
+
+          // Save to local snapshot storage
+          saveSnapshot(snapshot, config.maxStoredSnapshots || 10);
+
+          // If Google Drive token exists and auto-sync is enabled, upload to user's personal Google Drive
+          const driveToken = getStoredGoogleDriveToken();
+          const driveSettings = getGoogleDriveSettings();
+          if (driveToken && driveSettings.autoSync) {
+            try {
+              await uploadBackupFileToDrive(driveToken, snapshot.data, `FINORA_AutoDaily_${todayStr}.json`);
+              console.log('✅ Automated daily backup successfully uploaded to personal Google Drive');
+            } catch (driveErr) {
+              console.warn('Google Drive auto-backup error:', driveErr);
+            }
+          }
+
+          // Update config with last backup date & time
+          saveAutoBackupConfig({
+            lastBackupDate: todayStr,
+            lastBackupTimestamp: now.toISOString(),
+          });
+        }
+      } catch (err) {
+        console.error('Error during auto backup check:', err);
+      }
+    };
+
+    // Run on mount
+    performDailyBackupCheck();
+
+    // Check periodically every 60 seconds
+    const interval = setInterval(performDailyBackupCheck, 60000);
+    return () => clearInterval(interval);
+  }, [accounts, transactions, loans, budgets, savingsGoals, bills, investments, categories]);
 
   // Synchronize generated notifications (bills due, budget overshoots, loan payments)
   useEffect(() => {

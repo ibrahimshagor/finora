@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { FinancialProvider, useFinance } from './context/FinancialContext';
 import { Header } from './components/common/Header';
 import { SidebarNavigation } from './components/common/SidebarNavigation';
@@ -22,9 +22,11 @@ import { AccountDetailModal } from './components/accounts/AccountDetailModal';
 import { InAppCalculator } from './components/common/InAppCalculator';
 import { AboutModal } from './components/common/AboutModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { AuthView } from './components/auth/AuthView';
 import { Account, Transaction } from './types';
 
 const MainAppContent: React.FC = () => {
+  const { user, isGuestMode, loading: authLoading } = useAuth();
   const { language } = useFinance();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -46,6 +48,22 @@ const MainAppContent: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAiViewOpen, setIsAiViewOpen] = useState(false);
   const [isSettingsViewOpen, setIsSettingsViewOpen] = useState(false);
+
+  // If not authenticated and not in guest mode, show the dedicated Auth View first
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-black text-slate-950 text-2xl animate-pulse shadow-xl shadow-emerald-500/20">
+          F
+        </div>
+        <p className="text-xs text-slate-400 font-medium">FINORA ফাইন্যান্সিয়াল স্যুট লোড হচ্ছে...</p>
+      </div>
+    );
+  }
+
+  if (!user && !isGuestMode) {
+    return <AuthView />;
+  }
 
   const toggleDesktopCollapse = () => {
     setIsCollapsedDesktop((prev) => {
