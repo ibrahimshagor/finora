@@ -80,7 +80,8 @@ export const SettingsView: React.FC = () => {
     importFullDataJSON,
     importDataJSON,
     resetToDemoData,
-    resetAllData
+    resetAllData,
+    syncAllDataToFirestore
   } = useFinance();
 
   const { user, isGuestMode } = useAuth();
@@ -89,6 +90,8 @@ export const SettingsView: React.FC = () => {
   const [importStatus, setImportStatus] = useState<string>('');
   const [testingDb, setTestingDb] = useState<boolean>(false);
   const [dbTestResult, setDbTestResult] = useState<string | null>(null);
+  const [isPushingToFirestore, setIsPushingToFirestore] = useState(false);
+  const [firestorePushResult, setFirestorePushResult] = useState<string | null>(null);
 
   // Auto Backup Config & Snapshot state
   const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
@@ -929,6 +932,49 @@ export const SettingsView: React.FC = () => {
                 <span>ফায়ারবেস অফলাইন মোডে সুরক্ষিতভাবে ব্রাউজার মেমোরিতে ডাটা রাখছে। ইন্টারনেট সংযোগ থাকলে ক্লাউডে স্বয়ংক্রিয় সিঙ্ক হবে।</span>
               </>
             )}
+          </div>
+        )}
+
+        {/* Force Push to Firebase Console Action */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+              ফায়ারবেস কনসোলে ডেটা সরাসরি আপলোড
+            </span>
+            <span className="text-[11px] text-slate-400">
+              আপনার সমস্ত অ্যাকাউন্ট, লেনদেন, ঋণ, বাজেট ও সেভিংস গোল এক ক্লিকে ফায়ারবেস ক্লাউডে পুশ করুন।
+            </span>
+          </div>
+
+          <button
+            type="button"
+            disabled={isPushingToFirestore}
+            onClick={async () => {
+              setIsPushingToFirestore(true);
+              setFirestorePushResult(null);
+              try {
+                const res = await syncAllDataToFirestore();
+                if (res.success) {
+                  setFirestorePushResult(`✅ সফলভাবে ${res.count} টি রেকর্ড ফায়ারবেস ক্লাউড ডেটাবেসে পুশ ও সংরক্ষিত হয়েছে!`);
+                } else {
+                  setFirestorePushResult('⚠️ সিঙ্ক সম্পন্ন হতে সমস্যা হয়েছে। ইন্টারনেট বা অথেন্টিকেশন পরীক্ষা করুন।');
+                }
+              } catch (e: any) {
+                setFirestorePushResult(`❌ সিঙ্ক ত্রুটি: ${e?.message || 'অজানা সমস্যা'}`);
+              } finally {
+                setIsPushingToFirestore(false);
+              }
+            }}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+          >
+            <Cloud className={`w-4 h-4 ${isPushingToFirestore ? 'animate-bounce' : ''}`} />
+            <span>{isPushingToFirestore ? 'ক্লাউডে সিঙ্ক হচ্ছে...' : 'ফায়ারবেস কনসোলে ডাটা সিঙ্ক করুন'}</span>
+          </button>
+        </div>
+
+        {firestorePushResult && (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-medium text-emerald-800 dark:text-emerald-300">
+            {firestorePushResult}
           </div>
         )}
 

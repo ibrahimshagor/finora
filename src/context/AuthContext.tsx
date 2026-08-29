@@ -4,16 +4,13 @@ import {
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
+  signInAnonymously,
   signOut, 
   onAuthStateChanged,
   sendPasswordResetEmail,
   updateProfile
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
-import { 
-  loadGoogleGsiScript, 
-  saveGoogleDriveToken 
-} from '../lib/googleDriveBackup';
 
 interface AuthContextType {
   user: User | null;
@@ -21,7 +18,7 @@ interface AuthContextType {
   isGuest: boolean;
   isGuestMode: boolean;
   loginWithGoogle: () => Promise<void>;
-  loginWithDirectGoogleAccount: (email: string, displayName?: string) => void;
+  loginWithDirectGoogleAccount: (email: string, displayName?: string, photoURL?: string) => Promise<void>;
   loginWithEmail: (e: string, p: string) => Promise<void>;
   registerWithEmail: (e: string, p: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +26,8 @@ interface AuthContextType {
   resetPassword: (e: string) => Promise<void>;
   error: string | null;
   clearError: () => void;
+  showGoogleQuickPicker: boolean;
+  setShowGoogleQuickPicker: (show: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,6 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showGoogleQuickPicker, setShowGoogleQuickPicker] = useState(false);
 
   useEffect(() => {
     // 1. Check if direct Google user session is stored in localStorage
@@ -48,6 +48,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(googleUserData);
         setIsGuest(false);
         setLoading(false);
+        // Ensure background Firebase session for Firestore writes
+        if (!auth.currentUser) {
+          signInAnonymously(auth).catch(() => {});
+        }
         return;
       } catch (e) {
         localStorage.removeItem('finora_google_user');
@@ -68,11 +72,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 3. Listen to Firebase Auth state
+    // 3. Listen to real Firebase Auth state
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       const isCustomSession = localStorage.getItem('finora_google_user') || localStorage.getItem('finora_guest_user');
       if (!isCustomSession) {
         setUser(currentUser);
+        setIsGuest(false);
       }
       setLoading(false);
     });
@@ -82,12 +87,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearError = () => setError(null);
 
-  // Authenticate user directly with Google Profile metadata
-  const loginWithDirectGoogleAccount = (email: string, displayName?: string, photoURL?: string) => {
-    const cleanEmail = email.trim();
-    const name = displayName || cleanEmail.split('@')[0];
+  // Authenticate user directly with any chosen Google Profile metadata & connect to Firebase
+  const loginWithDirectGoogleAccount = async (email: string, displayName?: string, photoURL?: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const name = displayName?.trim() || cleanEmail.split('@')[0];
+    
+    // Ensure Firebase auth session is active for Firestore
+    try {
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
+    } catch (e) {
+      console.warn('Firebase anonymous session notice:', e);
+    }
+
+    const firebaseUid = auth.currentUser?.uid || ('google_' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 20));
+
     const googleUser = {
-      uid: 'google_' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 20),
+      uid: firebaseUid,
       email: cleanEmail,
       displayName: name,
       photoURL: photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=10b981&color=fff`,
@@ -97,9 +114,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     localStorage.setItem('finora_google_user', JSON.stringify(googleUser));
     localStorage.removeItem('finora_guest_user');
+
     setUser(googleUser);
     setIsGuest(false);
     setError(null);
+    setShowGoogleQuickPicker(false);
   };
 
   const loginWithGoogle = async () => {
@@ -107,41 +126,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsGuest(false);
     localStorage.removeItem('finora_guest_user');
 
-    // Default primary Google profile
-    const defaultGoogleEmail = 'ibrahimshagor.official@gmail.com';
-    const defaultGoogleName = 'Ibrahim Shagor';
+    // Force real Google Account Chooser screen (prompt user to choose account & authenticate)
+    googleProvider.setCustomParameters({
+      prompt: 'select_account'
+    });
 
-    // Check if running inside iframe or domain restrictions exist
-    const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
-
-    if (isInIframe) {
-      // In sandboxed iframe environments, avoid blocked popups and log in directly
-      loginWithDirectGoogleAccount(defaultGoogleEmail, defaultGoogleName);
-      return;
-    }
-
-    // Attempt Firebase native Popup in standalone window
     try {
-      await signInWithPopup(auth, googleProvider);
-      localStorage.removeItem('finora_google_user');
-      return;
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result.user) {
+        localStorage.removeItem('finora_google_user');
+        setUser(result.user);
+        setIsGuest(false);
+        setError(null);
+      }
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err?.code || err?.message);
 
-      // In case of domain unauthorization, popup blocker, or iframe restriction
-      const isPopupOrDomainIssue = 
-        err?.code === 'auth/unauthorized-domain' || 
-        err?.code === 'auth/popup-blocked' ||
-        err?.code === 'auth/cancelled-popup-request' ||
-        (err?.message && (err.message.includes('auth/unauthorized-domain') || err.message.includes('popup')));
-
-      if (isPopupOrDomainIssue) {
-        loginWithDirectGoogleAccount(defaultGoogleEmail, defaultGoogleName);
+      // If unauthorized domain or popup issue, seamlessly open the Google Account Quick Picker
+      if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
+        setShowGoogleQuickPicker(true);
         return;
       }
 
-      // Fallback: log in with Google profile
-      loginWithDirectGoogleAccount(defaultGoogleEmail, defaultGoogleName);
+      let userFriendlyMsg = 'Google সাইন ইন সম্পন্ন করা যায়নি।';
+      if (err?.code === 'auth/popup-blocked') {
+        userFriendlyMsg = 'আপনার ব্রাউজার সাইন ইন পপ-আপ উইন্ডোটি ব্লক করেছে। অনুগ্রহ করে ব্রাউজার সেটিংসে পপ-আপ অ্যালাও করুন অথবা সরাসরি Google অ্যাকাউন্টে প্রবেশ করুন।';
+        setShowGoogleQuickPicker(true);
+      } else if (err?.code === 'auth/popup-closed-by-user') {
+        userFriendlyMsg = 'গুগল সাইন ইন পপ-আপ উইন্ডোটি বন্ধ করা হয়েছে।';
+      } else if (err?.code === 'auth/cancelled-popup-request') {
+        userFriendlyMsg = 'পূর্ববর্তী সাইন ইন অনুরোধটি বাতিল হয়েছে। আবার চেষ্টা করুন।';
+      } else if (err?.code === 'auth/network-request-failed') {
+        userFriendlyMsg = 'ইন্টারনেট সংযোগ চেক করুন এবং পুনরায় চেষ্টা করুন।';
+      } else if (err?.message) {
+        userFriendlyMsg = err.message;
+      }
+
+      setError(userFriendlyMsg);
     }
   };
 
@@ -150,12 +171,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
-      localStorage.removeItem('finora_google_user');
       await signInWithEmailAndPassword(auth, email, pass);
     } catch (err: any) {
       console.error('Email Login Error:', err);
-      setError(err.message || 'Login failed. Please check your credentials.');
-      throw err;
+      let userMsg = 'লগইন ব্যর্থ হয়েছে। ইমেইল এবং পাসওয়ার্ড সঠিক কিনা পরীক্ষা করুন।';
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        userMsg = 'ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে।';
+      } else if (err.code === 'auth/too-many-requests') {
+        userMsg = 'অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িকভাবে লক হয়েছে। একটু পরে চেষ্টা করুন।';
+      }
+      setError(userMsg);
+      throw new Error(userMsg);
     }
   };
 
@@ -164,43 +190,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
-      localStorage.removeItem('finora_google_user');
       const userCred = await createUserWithEmailAndPassword(auth, email, pass);
       if (name && userCred.user) {
         await updateProfile(userCred.user, { displayName: name });
       }
     } catch (err: any) {
       console.error('Registration Error:', err);
-      setError(err.message || 'Registration failed.');
-      throw err;
+      let userMsg = 'নিবন্ধন সম্পন্ন করা যায়নি।';
+      if (err.code === 'auth/email-already-in-use') {
+        userMsg = 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।';
+      } else if (err.code === 'auth/weak-password') {
+        userMsg = 'পাসওয়ার্ডটি খুব সহজ। কমপক্ষে ৬ অক্ষরের জটিল পাসওয়ার্ড দিন।';
+      }
+      setError(userMsg);
+      throw new Error(userMsg);
     }
   };
 
   const loginAsGuest = () => {
     const guestUser = {
       uid: 'guest_user_finora_' + Math.random().toString(36).substring(2, 9),
-      email: 'demo@finora.app',
-      displayName: 'Md. Ibrahim Hossain (Demo User)',
+      email: 'guest@finora.app',
+      displayName: 'Guest User',
       photoURL: '',
-      emailVerified: true,
+      emailVerified: false,
       isAnonymous: true,
     } as unknown as User;
 
-    localStorage.removeItem('finora_google_user');
     localStorage.setItem('finora_guest_user', JSON.stringify(guestUser));
     setUser(guestUser);
     setIsGuest(true);
+    setError(null);
   };
 
   const logout = async () => {
     try {
       localStorage.removeItem('finora_guest_user');
-      localStorage.removeItem('finora_google_user');
       setIsGuest(false);
       if (auth.currentUser) {
         await signOut(auth);
       }
       setUser(null);
+      setError(null);
     } catch (err: any) {
       console.error('Logout error:', err);
     }
@@ -212,7 +243,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await sendPasswordResetEmail(auth, email);
     } catch (err: any) {
       console.error('Reset Password error:', err);
-      setError(err.message || 'Password reset email failed.');
+      setError('পাসওয়ার্ড রিসেট লিংক পাঠানো যায়নি। ইমেইল ঠিকানা সঠিক কিনা পরীক্ষা করুন।');
       throw err;
     }
   };
@@ -225,7 +256,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isGuest,
         isGuestMode: isGuest,
         loginWithGoogle,
-        loginWithDirectGoogleAccount,
         loginWithEmail,
         registerWithEmail,
         logout,
@@ -247,3 +277,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

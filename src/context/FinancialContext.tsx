@@ -163,6 +163,7 @@ interface FinancialContextType {
   exportFullDataJSON: () => string;
   importFullDataJSON: (jsonStr: string) => Promise<boolean>;
   resetToDemoData: () => Promise<void>;
+  syncAllDataToFirestore: () => Promise<{ success: boolean; count: number }>;
 }
 
 const FinancialContext = createContext<FinancialContextType | undefined>(undefined);
@@ -509,14 +510,39 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       // 1. Accounts listener
       const accRef = collection(db, `users/${user.uid}/accounts`);
-      const unsubAcc = onSnapshot(accRef, (snapshot) => {
+      const unsubAcc = onSnapshot(accRef, async (snapshot) => {
         if (!snapshot.empty) {
           const accs = snapshot.docs.map((d) => d.data() as Account);
           setAccounts(accs);
           saveToLocalStorage('accounts', accs);
         } else {
-          // If Firestore is empty, seed defaults
-          loadFromLocalStorage();
+          // If Firestore is empty for this user, seed default accounts to state and immediately save to Firestore
+          const now = new Date();
+          const initialAccounts: Account[] = DEFAULT_ACCOUNTS.map((acc, index) => ({
+            id: `acc_${Date.now()}_${index}`,
+            userId: user.uid,
+            ...acc,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          }));
+          setAccounts(initialAccounts);
+          saveToLocalStorage('accounts', initialAccounts);
+
+          try {
+            const batch = writeBatch(db);
+            batch.set(doc(db, 'users', user.uid), {
+              email: user.email || '',
+              displayName: user.displayName || '',
+              updatedAt: now.toISOString(),
+            }, { merge: true });
+
+            initialAccounts.forEach((acc) => {
+              batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc, { merge: true });
+            });
+            await batch.commit();
+          } catch (e) {
+            console.warn('Initial accounts sync notice:', e);
+          }
         }
         setSyncStatus('synced');
       }, (err) => {
@@ -917,10 +943,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         batch.set(doc(db, `users/${user.uid}/transactions`, id), newTx);
         const targetAcc = updatedAccounts.find((a) => a.id === newTx.accountId);
         if (targetAcc) {
-          batch.update(doc(db, `users/${user.uid}/accounts`, targetAcc.id), {
-            balance: targetAcc.balance,
-            updatedAt: new Date().toISOString(),
-          });
+          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), targetAcc, { merge: true });
         }
         await batch.commit();
       } catch (err) {
@@ -960,7 +983,19 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (user && !isGuest) {
       try {
-        await deleteDoc(doc(db, `users/${user.uid}/transactions`, id));
+        const batch = writeBatch(db);
+        batch.delete(doc(db, `users/${user.uid}/transactions`, id));
+        const targetAcc = updatedAccounts.find((a) => a.id === tx.accountId);
+        if (targetAcc) {
+          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), targetAcc, { merge: true });
+        }
+        if (tx.type === 'transfer' && tx.targetAccountId) {
+          const toAcc = updatedAccounts.find((a) => a.id === tx.targetAccountId);
+          if (toAcc) {
+            batch.set(doc(db, `users/${user.uid}/accounts`, toAcc.id), toAcc, { merge: true });
+          }
+        }
+        await batch.commit();
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/transactions/${id}`);
       }
@@ -968,7 +1003,6 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
-    // For safety, delete and re-apply or direct update
     const oldTx = transactions.find((t) => t.id === id);
     if (!oldTx) return;
 
@@ -979,10 +1013,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/transactions`, id), {
-          ...updates,
-          updatedAt: new Date().toISOString(),
-        });
+        await setDoc(doc(db, `users/${user.uid}/transactions`, id), updatedTx, { merge: true });
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/transactions/${id}`);
       }
@@ -1051,14 +1082,14 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       try {
         const batch = writeBatch(db);
         batch.set(doc(db, `users/${user.uid}/transactions`, id), newTx);
-        batch.update(doc(db, `users/${user.uid}/accounts`, fromAccountId), {
-          balance: (fromAcc.balance || 0) - amount,
-          updatedAt: new Date().toISOString(),
-        });
-        batch.update(doc(db, `users/${user.uid}/accounts`, toAccountId), {
-          balance: (toAcc.balance || 0) + amount,
-          updatedAt: new Date().toISOString(),
-        });
+        const fromAccObj = updatedAccounts.find((a) => a.id === fromAccountId);
+        const toAccObj = updatedAccounts.find((a) => a.id === toAccountId);
+        if (fromAccObj) {
+          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), fromAccObj, { merge: true });
+        }
+        if (toAccObj) {
+          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), toAccObj, { merge: true });
+        }
         await batch.commit();
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/transfers`);
@@ -1252,17 +1283,15 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.update(doc(db, `users/${user.uid}/loans`, loanId), {
-          paidAmount: newPaid,
-          remainingAmount: newRemaining,
-          status: newStatus,
-          updatedAt: new Date().toISOString(),
-        });
+        const updatedLoanDoc = updatedLoans.find((l) => l.id === loanId);
+        if (updatedLoanDoc) {
+          batch.set(doc(db, `users/${user.uid}/loans`, loanId), updatedLoanDoc, { merge: true });
+        }
         batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
-        batch.update(doc(db, `users/${user.uid}/accounts`, fromAccountId), {
-          balance: (sourceAcc.balance || 0) - amount,
-          updatedAt: new Date().toISOString(),
-        });
+        const sourceAccObj = updatedAccounts.find((a) => a.id === fromAccountId);
+        if (sourceAccObj) {
+          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), sourceAccObj, { merge: true });
+        }
         await batch.commit();
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/loan_repayment`);
@@ -1332,17 +1361,15 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.update(doc(db, `users/${user.uid}/loans`, loanId), {
-          paidAmount: newPaid,
-          remainingAmount: newRemaining,
-          status: newStatus,
-          updatedAt: new Date().toISOString(),
-        });
+        const updatedLoanDoc = updatedLoans.find((l) => l.id === loanId);
+        if (updatedLoanDoc) {
+          batch.set(doc(db, `users/${user.uid}/loans`, loanId), updatedLoanDoc, { merge: true });
+        }
         batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
-        batch.update(doc(db, `users/${user.uid}/accounts`, toAccountId), {
-          balance: (targetAcc.balance || 0) + amount,
-          updatedAt: new Date().toISOString(),
-        });
+        const targetAccObj = updatedAccounts.find((a) => a.id === toAccountId);
+        if (targetAccObj) {
+          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), targetAccObj, { merge: true });
+        }
         await batch.commit();
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/loan_collection`);
@@ -1855,6 +1882,84 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const syncAllDataToFirestore = async (): Promise<{ success: boolean; count: number }> => {
+    if (!user || isGuest) {
+      return { success: false, count: 0 };
+    }
+
+    try {
+      setSyncStatus('syncing');
+      const batch = writeBatch(db);
+      let count = 0;
+
+      // 1. User profile doc
+      const userRef = doc(db, 'users', user.uid);
+      batch.set(userRef, {
+        email: user.email || '',
+        displayName: user.displayName || '',
+        lastActive: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      count++;
+
+      // 2. Accounts
+      accounts.forEach((acc) => {
+        batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc, { merge: true });
+        count++;
+      });
+
+      // 3. Transactions
+      transactions.forEach((tx) => {
+        batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), tx, { merge: true });
+        count++;
+      });
+
+      // 4. Loans
+      loans.forEach((loan) => {
+        batch.set(doc(db, `users/${user.uid}/loans`, loan.id), loan, { merge: true });
+        count++;
+      });
+
+      // 5. Budgets
+      budgets.forEach((bgt) => {
+        batch.set(doc(db, `users/${user.uid}/budgets`, bgt.id), bgt, { merge: true });
+        count++;
+      });
+
+      // 6. Savings Goals
+      savingsGoals.forEach((goal) => {
+        batch.set(doc(db, `users/${user.uid}/savingsGoals`, goal.id), goal, { merge: true });
+        count++;
+      });
+
+      // 7. Bills
+      bills.forEach((bill) => {
+        batch.set(doc(db, `users/${user.uid}/bills`, bill.id), bill, { merge: true });
+        count++;
+      });
+
+      // 8. Investments
+      investments.forEach((inv) => {
+        batch.set(doc(db, `users/${user.uid}/investments`, inv.id), inv, { merge: true });
+        count++;
+      });
+
+      // 9. Categories
+      categories.forEach((cat) => {
+        batch.set(doc(db, `users/${user.uid}/categories`, cat.id), cat, { merge: true });
+        count++;
+      });
+
+      await batch.commit();
+      setSyncStatus('synced');
+      return { success: true, count };
+    } catch (err) {
+      console.error('Error syncing all data to Firestore:', err);
+      setSyncStatus('error');
+      return { success: false, count: 0 };
+    }
+  };
+
   const resetAllData = async () => {
     localStorage.clear();
     seedInitialData();
@@ -1926,6 +2031,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         exportFullDataJSON: exportDataJSON,
         importFullDataJSON: importDataJSON,
         resetToDemoData: resetAllData,
+        syncAllDataToFirestore,
       }}
     >
       {children}

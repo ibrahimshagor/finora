@@ -7,20 +7,23 @@ import {
   enableIndexedDbPersistence
 } from 'firebase/firestore';
 
-// User's provided Firebase configuration
+// Firebase configuration (supports environment variables or project defaults)
 export const firebaseConfig = {
-  apiKey: "AIzaSyDOtpEOX7OJj_LH6B7l7xjGjYb6w8uQhM0",
-  authDomain: "finora-tikmerk-6a07e.firebaseapp.com",
-  projectId: "finora-tikmerk-6a07e",
-  storageBucket: "finora-tikmerk-6a07e.firebasestorage.app",
-  messagingSenderId: "41725718584",
-  appId: "1:41725718584:web:d533e4493b6e019dba36cd"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDOtpEOX7OJj_LH6B7l7xjGjYb6w8uQhM0",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "finora-tikmerk-6a07e.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "finora-tikmerk-6a07e",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "finora-tikmerk-6a07e.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "41725718584",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:41725718584:web:d533e4493b6e019dba36cd"
 };
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
 export const db = getFirestore(app);
 
 // Enable offline persistence gracefully if supported

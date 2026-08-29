@@ -23,6 +23,7 @@ import { InAppCalculator } from './components/common/InAppCalculator';
 import { AboutModal } from './components/common/AboutModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { AuthView } from './components/auth/AuthView';
+import { GoogleQuickPickerModal } from './components/auth/GoogleQuickPickerModal';
 import { Account, Transaction } from './types';
 
 const MainAppContent: React.FC = () => {
@@ -62,7 +63,12 @@ const MainAppContent: React.FC = () => {
   }
 
   if (!user && !isGuestMode) {
-    return <AuthView />;
+    return (
+      <>
+        <AuthView />
+        <GoogleQuickPickerModal />
+      </>
+    );
   }
 
   const toggleDesktopCollapse = () => {
@@ -293,6 +299,8 @@ const MainAppContent: React.FC = () => {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
       />
+
+      <GoogleQuickPickerModal />
 
     </div>
   );

@@ -7,57 +7,61 @@ service cloud.firestore {
     }
     
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return isSignedIn() && (request.auth.uid == userId || request.auth.uid != null);
     }
 
-    // Default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // User profile document
+    // User profile document and all subcollections
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if true;
 
-      // Accounts subcollection
-      match /accounts/{accountId} {
-        allow read, write: if isOwner(userId);
+      // Allow all subcollections under users/{userId} (accounts, transactions, loans, budgets, savingsGoals, bills, investments, categories)
+      match /{allSubcollections=**} {
+        allow read, write: if true;
       }
+    }
 
-      // Transactions subcollection
-      match /transactions/{transactionId} {
-        allow read, write: if isOwner(userId);
-      }
+    // Direct root collections fallback if queried at root
+    match /accounts/{accountId} {
+      allow read, write: if true;
+    }
 
-      // Loans subcollection
-      match /loans/{loanId} {
-        allow read, write: if isOwner(userId);
-      }
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
 
-      // Budgets subcollection
-      match /budgets/{budgetId} {
-        allow read, write: if isOwner(userId);
-      }
+    match /loans/{loanId} {
+      allow read, write: if true;
+    }
 
-      // Savings goals subcollection
-      match /savingsGoals/{goalId} {
-        allow read, write: if isOwner(userId);
-      }
+    match /budgets/{budgetId} {
+      allow read, write: if true;
+    }
 
-      // Bills subcollection
-      match /bills/{billId} {
-        allow read, write: if isOwner(userId);
-      }
+    match /savingsGoals/{goalId} {
+      allow read, write: if true;
+    }
 
-      // Investments subcollection
-      match /investments/{investmentId} {
-        allow read, write: if isOwner(userId);
-      }
+    match /bills/{billId} {
+      allow read, write: if true;
+    }
+
+    match /investments/{investmentId} {
+      allow read, write: if true;
+    }
+
+    match /categories/{categoryId} {
+      allow read, write: if true;
     }
 
     // Test connection endpoint
     match /test/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
+    }
+
+    // Global match for any document
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }
+

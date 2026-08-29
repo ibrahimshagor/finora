@@ -15,6 +15,8 @@ import {
   PieChart, 
   AlertCircle,
   HelpCircle,
+  Copy,
+  Check,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -28,7 +30,8 @@ export const AuthView: React.FC = () => {
     loginAsGuest, 
     resetPassword, 
     error: authError,
-    clearError
+    clearError,
+    setShowGoogleQuickPicker
   } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
@@ -54,6 +57,16 @@ export const AuthView: React.FC = () => {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const handleCopyDomain = () => {
+    const domain = typeof window !== 'undefined' ? window.location.hostname : '';
+    if (domain) {
+      navigator.clipboard.writeText(domain);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 3000);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,8 +149,7 @@ export const AuthView: React.FC = () => {
     try {
       await loginWithGoogle();
     } catch (err: any) {
-      console.error(err);
-      setErrorMessage('Google সাইন ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+      console.warn('Google sign in error handled:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -296,9 +308,30 @@ export const AuthView: React.FC = () => {
 
               {/* Error or Success Notification */}
               {(errorMessage || authError) && (
-                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2 animate-in fade-in">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-                  <span>{errorMessage || authError}</span>
+                <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-xs text-rose-300 space-y-2 animate-in fade-in">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                    <div className="flex-1 space-y-1">
+                      <p className="leading-relaxed">{errorMessage || authError}</p>
+                    </div>
+                  </div>
+
+                  {/* If domain error, show domain copy box */}
+                  {(String(errorMessage || authError).includes('Authorized Domains') || String(errorMessage || authError).includes('unauthorized-domain')) && (
+                    <div className="mt-2 pt-2 border-t border-rose-500/20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-slate-950/60 p-2.5 rounded-xl">
+                      <div className="font-mono text-[11px] text-slate-300 truncate select-all">
+                        {typeof window !== 'undefined' ? window.location.hostname : ''}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCopyDomain}
+                        className="px-3 py-1.5 bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/40 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                      >
+                        {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedDomain ? 'কপি হয়েছে!' : 'ডোমেইন কপি করুন'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

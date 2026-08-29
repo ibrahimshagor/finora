@@ -60,7 +60,7 @@ export const saveGoogleDriveToken = (token: string, expiresInSeconds: number = 8
   if (email || name) {
     const existing = getGoogleDriveUserInfo() || {};
     const updated = {
-      email: email || existing.email || 'myaccount@gmail.com',
+      email: email || existing.email || '',
       name: name || existing.name || (email ? email.split('@')[0] : 'User')
     };
     localStorage.setItem(STORAGE_KEY_GDRIVE_USER, JSON.stringify(updated));
