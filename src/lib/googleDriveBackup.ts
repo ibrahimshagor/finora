@@ -186,7 +186,29 @@ export const requestGoogleDriveAccess = async (
           resolve({ token: accessToken, email: userEmail, name: userName });
         },
         error_callback: (err: any) => {
-          reject(new Error(`Google Authentication ত্রুটি: ${err?.message || 'পপআপ বন্ধ করা হয়েছে বা পারমিশন দেওয়া হয়নি।'}`));
+          console.warn('Google OAuth prompt callback notice:', err);
+          const isClosed = 
+            err?.type === 'popup_closed' || 
+            err?.message?.includes('closed') || 
+            err?.message?.includes('Popup window closed') ||
+            err?.type === 'user_cancelled';
+
+          if (isClosed) {
+            const cancelError: any = new Error('পপ-আপ উইন্ডো বন্ধ করা হয়েছে।');
+            cancelError.isCancelled = true;
+            cancelError.code = 'popup_closed';
+            reject(cancelError);
+            return;
+          }
+
+          if (err?.type === 'popup_blocked') {
+            const blockedError: any = new Error('ব্রাউজার দ্বারা পপ-আপ ব্লক করা হয়েছে। অনুগ্রহ করে ব্রাউজার সেটিংসে পপ-আপ অনুমোদন করুন।');
+            blockedError.code = 'popup_blocked';
+            reject(blockedError);
+            return;
+          }
+
+          reject(new Error(err?.message || 'Google অনুমোদন সম্পন্ন করা যায়নি।'));
         },
       });
 

@@ -51,6 +51,7 @@ export const AuthView: React.FC = () => {
   // State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorDetailsCode, setErrorDetailsCode] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Forgot password modal
@@ -68,26 +69,50 @@ export const AuthView: React.FC = () => {
     }
   };
 
+  const handleSwitchToRegisterWithEmail = () => {
+    if (loginEmail) {
+      setRegEmail(loginEmail.trim());
+    }
+    setActiveTab('register');
+    setErrorMessage(null);
+    setErrorDetailsCode(null);
+    clearError();
+  };
+
+  const handleOpenPasswordResetWithEmail = () => {
+    setResetEmail(loginEmail.trim());
+    setResetSent(false);
+    setShowForgotModal(true);
+    setErrorMessage(null);
+    setErrorDetailsCode(null);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setErrorDetailsCode(null);
     setSuccessMessage(null);
     clearError();
 
-    if (!loginEmail || !loginPassword) {
+    const cleanEmail = loginEmail.trim();
+    if (!cleanEmail || !loginPassword) {
       setErrorMessage('অনুগ্রহ করে ইমেইল এবং পাসওয়ার্ড প্রদান করুন।');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await loginWithEmail(loginEmail.trim(), loginPassword);
+      await loginWithEmail(cleanEmail, loginPassword);
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-        setErrorMessage('ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে। আবার চেষ্টা করুন।');
-      } else if (err.code === 'auth/too-many-requests') {
+      console.error('Login action handled:', err);
+      const code = err.code || '';
+      setErrorDetailsCode(code);
+      if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+        setErrorMessage('ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে। আপনি যদি প্রথমবার এসে থাকেন তবে নতুন অ্যাকাউন্ট খুলুন (Sign Up), অথবা পাসওয়ার্ড রিসেট করুন।');
+      } else if (code === 'auth/too-many-requests') {
         setErrorMessage('অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্ট সাময়িক লক হয়েছে। কিছুক্ষণ পর চেষ্টা করুন।');
+      } else if (code === 'auth/invalid-email') {
+        setErrorMessage('ইমেইল ঠিকানার ফরম্যাটটি সঠিক নয়। অনুগ্রহ করে সঠিক ইমেইল দিন।');
       } else {
         setErrorMessage(err.message || 'লগইন ব্যর্থ হয়েছে। অনুগ্রহ করে তথ্য যাচাই করুন।');
       }
@@ -99,19 +124,22 @@ export const AuthView: React.FC = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setErrorDetailsCode(null);
     setSuccessMessage(null);
     clearError();
 
-    if (!regName.trim()) {
+    const cleanName = regName.trim();
+    const cleanEmail = regEmail.trim();
+
+    if (!cleanName) {
       setErrorMessage('অনুগ্রহ করে আপনার পুরো নাম প্রদান করুন।');
       return;
     }
-    const englishNameRegex = /^[A-Za-z\s.'-]+$/;
-    if (!englishNameRegex.test(regName.trim())) {
-      setErrorMessage('নামটি অবশ্যই শুধুমাত্র ইংরেজি অক্ষরে লিখতে হবে (যেমন: Tanvir Ahmed)।');
+    if (cleanName.length < 2) {
+      setErrorMessage('নাম কমপক্ষে ২ অক্ষরের হতে হবে।');
       return;
     }
-    if (!regEmail.trim()) {
+    if (!cleanEmail) {
       setErrorMessage('অনুগ্রহ করে একটি সঠিক ইমেইল ঠিকানা দিন।');
       return;
     }
@@ -126,14 +154,18 @@ export const AuthView: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await registerWithEmail(regEmail.trim(), regPassword, regName.trim());
+      await registerWithEmail(cleanEmail, regPassword, cleanName);
       setSuccessMessage('অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! আপনাকে ড্যাশবোর্ডে নিয়ে যাওয়া হচ্ছে...');
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/email-already-in-use') {
-        setErrorMessage('এই ইমেইলটি দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। লগইন করার চেষ্টা করুন।');
-      } else if (err.code === 'auth/weak-password') {
+      const code = err.code || '';
+      setErrorDetailsCode(code);
+      if (code === 'auth/email-already-in-use') {
+        setErrorMessage('এই ইমেইলটি দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। লগইন ট্যাবে গিয়ে সাইন ইন করুন।');
+      } else if (code === 'auth/weak-password') {
         setErrorMessage('পাসওয়ার্ডটি খুব সহজ। একটু জটিল পাসওয়ার্ড নির্বাচন করুন।');
+      } else if (code === 'auth/invalid-email') {
+        setErrorMessage('ইমেইল ঠিকানার ফরম্যাটটি সঠিক নয়।');
       } else {
         setErrorMessage(err.message || 'নিবন্ধন প্রক্রিয়া সম্পন্ন করা যায়নি।');
       }
@@ -308,13 +340,38 @@ export const AuthView: React.FC = () => {
 
               {/* Error or Success Notification */}
               {(errorMessage || authError) && (
-                <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-xs text-rose-300 space-y-2 animate-in fade-in">
+                <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-xs text-rose-300 space-y-2.5 animate-in fade-in">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
                     <div className="flex-1 space-y-1">
-                      <p className="leading-relaxed">{errorMessage || authError}</p>
+                      <p className="leading-relaxed font-medium">{errorMessage || authError}</p>
                     </div>
                   </div>
+
+                  {/* Contextual Action Buttons for Invalid Credential / Login Fail */}
+                  {(errorDetailsCode === 'auth/invalid-credential' || 
+                    errorDetailsCode === 'auth/wrong-password' || 
+                    errorDetailsCode === 'auth/user-not-found' ||
+                    String(errorMessage || authError).includes('ভুল ইমেইল বা পাসওয়ার্ড')) && (
+                    <div className="pt-2 border-t border-rose-500/20 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSwitchToRegisterWithEmail}
+                        className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <UserIcon className="w-3.5 h-3.5" />
+                        <span>নতুন অ্যাকাউন্ট খুলুন (Sign Up)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleOpenPasswordResetWithEmail}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>পাসওয়ার্ড রিসেট করুন</span>
+                      </button>
+                    </div>
+                  )}
 
                   {/* If domain error, show domain copy box */}
                   {(String(errorMessage || authError).includes('Authorized Domains') || String(errorMessage || authError).includes('unauthorized-domain')) && (

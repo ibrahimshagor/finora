@@ -220,7 +220,18 @@ export const SettingsView: React.FC = () => {
         type: 'success',
       });
     } catch (err: any) {
-      console.error(err);
+      console.warn('Google Drive Connect notice:', err);
+      if (
+        err?.isCancelled || 
+        err?.code === 'popup_closed' || 
+        err?.message?.includes('closed') || 
+        err?.message?.includes('বন্ধ') ||
+        err?.message?.includes('Popup window closed')
+      ) {
+        // User closed or cancelled popup window - don't show red error
+        setDriveStatusMsg(null);
+        return;
+      }
       setDriveStatusMsg({
         text: err.message || 'Google Drive সংযোগ ব্যর্থ হয়েছে।',
         type: 'error',

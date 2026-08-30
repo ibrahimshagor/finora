@@ -151,7 +151,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // If user closed or cancelled popup window, don't set an intrusive blocking error
-      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+      if (
+        err?.code === 'auth/popup-closed-by-user' || 
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.message?.includes('popup-closed-by-user') ||
+        err?.message?.includes('Popup window closed') ||
+        err?.message?.includes('closed-by-user')
+      ) {
         setError(null);
         return;
       }
@@ -176,17 +182,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
       localStorage.removeItem('finora_google_user');
-      await signInWithEmailAndPassword(auth, email, pass);
+      await signInWithEmailAndPassword(auth, email.trim(), pass);
     } catch (err: any) {
       console.error('Email Login Error:', err);
       let userMsg = 'লগইন ব্যর্থ হয়েছে। ইমেইল এবং পাসওয়ার্ড সঠিক কিনা পরীক্ষা করুন।';
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        userMsg = 'ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে।';
+        userMsg = 'ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে। আপনি যদি নতুন ব্যবহারকারী হন তবে প্রথমে অ্যাকাউন্ট তৈরি (Sign Up) করুন।';
       } else if (err.code === 'auth/too-many-requests') {
         userMsg = 'অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িকভাবে লক হয়েছে। একটু পরে চেষ্টা করুন।';
+      } else if (err.code === 'auth/invalid-email') {
+        userMsg = 'ইমেইল ঠিকানার ফরম্যাট সঠিক নয়। সঠিক ইমেইল প্রদান করুন।';
+      } else if (err.message) {
+        userMsg = err.message;
       }
       setError(userMsg);
-      throw new Error(userMsg);
+      const customErr: any = new Error(userMsg);
+      customErr.code = err.code || 'auth/invalid-credential';
+      throw customErr;
     }
   };
 
@@ -196,20 +208,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
       localStorage.removeItem('finora_google_user');
-      const userCred = await createUserWithEmailAndPassword(auth, email, pass);
+      const userCred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
       if (name && userCred.user) {
-        await updateProfile(userCred.user, { displayName: name });
+        await updateProfile(userCred.user, { displayName: name.trim() });
       }
     } catch (err: any) {
       console.error('Registration Error:', err);
       let userMsg = 'নিবন্ধন সম্পন্ন করা যায়নি।';
       if (err.code === 'auth/email-already-in-use') {
-        userMsg = 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।';
+        userMsg = 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। লগইন করার চেষ্টা করুন।';
       } else if (err.code === 'auth/weak-password') {
         userMsg = 'পাসওয়ার্ডটি খুব সহজ। কমপক্ষে ৬ অক্ষরের জটিল পাসওয়ার্ড দিন।';
+      } else if (err.code === 'auth/invalid-email') {
+        userMsg = 'ইমেইল ঠিকানার ফরম্যাট সঠিক নয়।';
+      } else if (err.message) {
+        userMsg = err.message;
       }
       setError(userMsg);
-      throw new Error(userMsg);
+      const customErr: any = new Error(userMsg);
+      customErr.code = err.code || 'auth/registration-failed';
+      throw customErr;
     }
   };
 
@@ -264,6 +282,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isGuest,
         isGuestMode: isGuest,
         loginWithGoogle,
+        loginWithDirectGoogleAccount,
         loginWithEmail,
         registerWithEmail,
         logout,
@@ -271,6 +290,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         error,
         clearError,
+        showGoogleQuickPicker,
+        setShowGoogleQuickPicker,
       }}
     >
       {children}
