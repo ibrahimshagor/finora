@@ -18,7 +18,10 @@ import {
   Coins,
   ChevronRight,
   ChevronDown,
-  X
+  X,
+  Cloud,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { useFinance } from '../../context/FinancialContext';
 import { useAuth } from '../../context/AuthContext';
@@ -59,16 +62,29 @@ export const Header: React.FC<HeaderProps> = ({
     notifications, 
     markNotificationAsRead,
     clearAllNotifications,
+    syncStatus,
+    syncAllDataToFirestore,
   } = useFinance();
   const { user, isGuest, logout } = useAuth();
   
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  const handleManualSync = async () => {
+    if (isGuest || !user) return;
+    setIsManualSyncing(true);
+    try {
+      await syncAllDataToFirestore();
+    } finally {
+      setTimeout(() => setIsManualSyncing(false), 600);
+    }
+  };
 
   // Close menus on outside click
   useEffect(() => {
@@ -108,24 +124,27 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Mobile Brand Logo & Name */}
-            <div className="flex items-center gap-2 min-w-0 lg:hidden">
+            {/* Brand Logo & Name (Visible on both Mobile & Desktop) */}
+            <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-black text-sm shadow-sm shadow-emerald-600/30 shrink-0">
                 F
               </div>
-              <span className="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-emerald-800 to-teal-700 dark:from-white dark:via-emerald-300 dark:to-teal-300 bg-clip-text text-transparent truncate">
-                {APP_INFO.name}
-              </span>
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm sm:text-base font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-emerald-800 to-teal-700 dark:from-white dark:via-emerald-300 dark:to-teal-300 bg-clip-text text-transparent truncate">
+                    {APP_INFO.name}
+                  </span>
+                  <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50">
+                    v2.5
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Desktop Active Tab Title & Breadcrumb */}
-            <div className="hidden lg:flex items-center gap-2 min-w-0">
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                FINORA
-              </span>
-              <span className="text-slate-300 dark:text-slate-600">/</span>
+            <div className="hidden lg:flex items-center gap-2 min-w-0 pl-1 border-l border-slate-200 dark:border-slate-800">
               {activeTabTitle ? (
-                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200/50 dark:border-emerald-800/50 truncate max-w-[240px]">
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200/50 dark:border-emerald-800/50 truncate max-w-[200px] xl:max-w-[280px]">
                   {activeTabTitle}
                 </span>
               ) : (
@@ -139,11 +158,42 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Right: Quick Action Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             
+            {/* Realtime Cloud Sync Status Indicator */}
+            {!isGuest && user && (
+              <button
+                id="header-cloud-sync-btn"
+                onClick={handleManualSync}
+                disabled={isManualSyncing}
+                className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium bg-slate-100/80 hover:bg-slate-200/80 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 transition-colors cursor-pointer"
+                title={language === 'bn' ? 'ক্লাউড সিঙ্ক স্ট্যাটাস (ক্লিক করে রিফ্রেশ করুন)' : 'Cloud Sync Status (Click to refresh)'}
+              >
+                {syncStatus === 'syncing' || isManualSyncing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
+                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{language === 'bn' ? 'সিঙ্ক হচ্ছে...' : 'Syncing...'}</span>
+                  </>
+                ) : syncStatus === 'error' ? (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+                    <span className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold">{language === 'bn' ? 'সিঙ্ক ত্রুটি' : 'Sync Error'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-[11px] text-slate-700 dark:text-slate-300 font-semibold">{language === 'bn' ? 'ক্লাউড সিঙ্ক' : 'Cloud Synced'}</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Quick Add Transaction Button (Desktop & Compact on Mobile) */}
             <button
               id="header-new-transaction-btn"
               onClick={onOpenNewTransaction}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl transition-all shadow-sm shadow-emerald-600/20 cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs sm:text-sm font-semibold rounded-xl transition-all shadow-sm shadow-emerald-600/20 cursor-pointer"
               title={language === 'bn' ? 'নতুন লেনদেন যোগ করুন' : 'Add New Transaction'}
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -191,7 +241,7 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' 
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
-              title={privacyMode ? (language === 'bn' ? 'প্রাইভেসি মোড চালু' : 'Privacy Mode Active') : (language === 'bn' ? 'প্রাইভেসি মোড বন্ধ' : 'Privacy Mode Off')}
+              title={privacyMode ? (language === 'bn' ? 'প্রাইভেসি মোড চালু (ব্যালেন্স গোপন)' : 'Privacy Mode Active') : (language === 'bn' ? 'প্রাইভেসি মোড বন্ধ' : 'Privacy Mode Off')}
             >
               {privacyMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -203,6 +253,7 @@ export const Header: React.FC<HeaderProps> = ({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
                 className="appearance-none bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold py-1.5 pl-2.5 pr-7 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer transition-colors"
+                title={language === 'bn' ? 'মুদ্রা পরিবর্তন' : 'Change Currency'}
               >
                 {CURRENCIES.map((c) => (
                   <option key={c.code} value={c.code}>

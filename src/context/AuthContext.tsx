@@ -8,7 +8,8 @@ import {
   signOut, 
   onAuthStateChanged,
   sendPasswordResetEmail,
-  updateProfile
+  updateProfile,
+  updatePassword
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 
@@ -21,6 +22,7 @@ interface AuthContextType {
   loginWithDirectGoogleAccount: (email: string, displayName?: string, photoURL?: string) => Promise<void>;
   loginWithEmail: (e: string, p: string) => Promise<void>;
   registerWithEmail: (e: string, p: string, name: string) => Promise<void>;
+  setPasswordForAccount: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   loginAsGuest: () => void;
   resetPassword: (e: string) => Promise<void>;
@@ -248,6 +250,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   };
 
+  const setPasswordForAccount = async (newPass: string) => {
+    if (!newPass || newPass.length < 6) {
+      throw new Error('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');
+    }
+    if (!auth.currentUser) {
+      throw new Error('ব্যবহারকারী লগইন অবস্থায় নেই।');
+    }
+    try {
+      setError(null);
+      await updatePassword(auth.currentUser, newPass);
+    } catch (err: any) {
+      console.error('Update Password Error:', err);
+      let msg = 'পাসওয়ার্ড পরিবর্তন বা সেট করা সম্ভব হয়নি।';
+      if (err.code === 'auth/requires-recent-login') {
+        msg = 'নিরাপত্তার স্বার্থে অনুগ্রহ করে পুনরায় লগইন করে পাসওয়ার্ড পরিবর্তন করুন।';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'পাসওয়ার্ডটি খুব সহজ। একটু জটিল পাসওয়ার্ড নির্বাচন করুন।';
+      } else if (err.message) {
+        msg = err.message;
+      }
+      setError(msg);
+      throw new Error(msg);
+    }
+  };
+
   const logout = async () => {
     try {
       localStorage.removeItem('finora_guest_user');
@@ -266,7 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const resetPassword = async (email: string) => {
     try {
       setError(null);
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, email.trim());
     } catch (err: any) {
       console.error('Reset Password error:', err);
       setError('পাসওয়ার্ড রিসেট লিংক পাঠানো যায়নি। ইমেইল ঠিকানা সঠিক কিনা পরীক্ষা করুন।');
@@ -285,6 +312,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithDirectGoogleAccount,
         loginWithEmail,
         registerWithEmail,
+        setPasswordForAccount,
         logout,
         loginAsGuest,
         resetPassword,
