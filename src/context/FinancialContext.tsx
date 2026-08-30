@@ -8,7 +8,7 @@ import {
   deleteDoc, 
   writeBatch 
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, cleanForFirestore } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { 
   Account, 
@@ -25,6 +25,8 @@ import {
   AccountStatement
 } from '../types';
 import { 
+  CLEAN_STARTER_ACCOUNTS,
+  DEMO_GUEST_ACCOUNTS,
   DEFAULT_ACCOUNTS, 
   DEFAULT_INCOME_CATEGORIES, 
   DEFAULT_EXPENSE_CATEGORIES, 
@@ -253,34 +255,6 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return found ? found.symbol : '৳';
   }, [currency]);
 
-  // Fallback Local Storage Loader & Saver
-  const loadFromLocalStorage = useCallback(() => {
-    try {
-      const storedAccs = localStorage.getItem(`finora_${userId}_accounts`);
-      const storedTxs = localStorage.getItem(`finora_${userId}_transactions`);
-      const storedLoans = localStorage.getItem(`finora_${userId}_loans`);
-      const storedBudgets = localStorage.getItem(`finora_${userId}_budgets`);
-      const storedGoals = localStorage.getItem(`finora_${userId}_goals`);
-      const storedBills = localStorage.getItem(`finora_${userId}_bills`);
-      const storedInvs = localStorage.getItem(`finora_${userId}_investments`);
-      const storedCats = localStorage.getItem(`finora_${userId}_categories`);
-
-      if (storedAccs) setAccounts(JSON.parse(storedAccs));
-      else seedInitialData();
-
-      if (storedTxs) setTransactions(JSON.parse(storedTxs));
-      if (storedLoans) setLoans(JSON.parse(storedLoans));
-      if (storedBudgets) setBudgets(JSON.parse(storedBudgets));
-      if (storedGoals) setSavingsGoals(JSON.parse(storedGoals));
-      if (storedBills) setBills(JSON.parse(storedBills));
-      if (storedInvs) setInvestments(JSON.parse(storedInvs));
-      if (storedCats) setCategories(JSON.parse(storedCats));
-    } catch (e) {
-      console.error('Error loading local storage:', e);
-      seedInitialData();
-    }
-  }, [userId]);
-
   const saveToLocalStorage = useCallback((key: string, data: any) => {
     try {
       localStorage.setItem(`finora_${userId}_${key}`, JSON.stringify(data));
@@ -289,11 +263,10 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [userId]);
 
-  // Initial Seed Data Generator for rich first-run experience
-  const seedInitialData = useCallback(() => {
+  // Seeder for brand new real accounts (Everything starts with clean ZERO data)
+  const seedCleanZeroUserData = useCallback(() => {
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const initialAccounts: Account[] = DEFAULT_ACCOUNTS.map((acc, index) => ({
+    const starterAccounts: Account[] = CLEAN_STARTER_ACCOUNTS.map((acc, index) => ({
       id: `acc_${Date.now()}_${index}`,
       userId,
       ...acc,
@@ -301,10 +274,39 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       updatedAt: now.toISOString(),
     }));
 
+    setAccounts(starterAccounts);
+    setTransactions([]);
+    setLoans([]);
+    setBudgets([]);
+    setSavingsGoals([]);
+    setBills([]);
+    setInvestments([]);
+
+    saveToLocalStorage('accounts', starterAccounts);
+    saveToLocalStorage('transactions', []);
+    saveToLocalStorage('loans', []);
+    saveToLocalStorage('budgets', []);
+    saveToLocalStorage('goals', []);
+    saveToLocalStorage('bills', []);
+    saveToLocalStorage('investments', []);
+  }, [userId, saveToLocalStorage]);
+
+  // Demo Seed Data for Guest Explore Mode Only
+  const seedDemoGuestData = useCallback(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const initialAccounts: Account[] = DEMO_GUEST_ACCOUNTS.map((acc, index) => ({
+      id: `demo_acc_${Date.now()}_${index}`,
+      userId: 'guest_default_user',
+      ...acc,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    }));
+
     const sampleTxs: Transaction[] = [
       {
-        id: `tx_${Date.now()}_1`,
-        userId,
+        id: `demo_tx_${Date.now()}_1`,
+        userId: 'guest_default_user',
         type: 'income',
         amount: 65000,
         date: todayStr,
@@ -317,8 +319,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updatedAt: now.toISOString(),
       },
       {
-        id: `tx_${Date.now()}_2`,
-        userId,
+        id: `demo_tx_${Date.now()}_2`,
+        userId: 'guest_default_user',
         type: 'expense',
         amount: 8500,
         date: todayStr,
@@ -331,8 +333,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updatedAt: now.toISOString(),
       },
       {
-        id: `tx_${Date.now()}_3`,
-        userId,
+        id: `demo_tx_${Date.now()}_3`,
+        userId: 'guest_default_user',
         type: 'expense',
         amount: 1750,
         date: todayStr,
@@ -348,8 +350,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sampleLoans: Loan[] = [
       {
-        id: `loan_${Date.now()}_1`,
-        userId,
+        id: `demo_loan_${Date.now()}_1`,
+        userId: 'guest_default_user',
         type: 'borrowed',
         personName: 'Mr. Rafiqul Islam (Friend)',
         contactInfo: '01711223344',
@@ -364,8 +366,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         updatedAt: now.toISOString(),
       },
       {
-        id: `loan_${Date.now()}_2`,
-        userId,
+        id: `demo_loan_${Date.now()}_2`,
+        userId: 'guest_default_user',
         type: 'lent',
         personName: 'Tanvir Ahmed (Colleague)',
         contactInfo: '01899887766',
@@ -383,8 +385,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sampleBudgets: Budget[] = [
       {
-        id: `bgt_${Date.now()}_1`,
-        userId,
+        id: `demo_bgt_${Date.now()}_1`,
+        userId: 'guest_default_user',
         categoryId: 'cat_exp_food',
         categoryName: 'Food & Dining',
         targetAmount: 18000,
@@ -394,8 +396,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         createdAt: now.toISOString(),
       },
       {
-        id: `bgt_${Date.now()}_2`,
-        userId,
+        id: `demo_bgt_${Date.now()}_2`,
+        userId: 'guest_default_user',
         categoryId: 'cat_exp_grocery',
         categoryName: 'Grocery & Bazaar',
         targetAmount: 25000,
@@ -408,8 +410,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sampleGoals: SavingsGoal[] = [
       {
-        id: `goal_${Date.now()}_1`,
-        userId,
+        id: `demo_goal_${Date.now()}_1`,
+        userId: 'guest_default_user',
         title: 'Emergency Rainy Day Fund',
         targetAmount: 150000,
         currentAmount: 95000,
@@ -421,8 +423,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         createdAt: now.toISOString(),
       },
       {
-        id: `goal_${Date.now()}_2`,
-        userId,
+        id: `demo_goal_${Date.now()}_2`,
+        userId: 'guest_default_user',
         title: 'M3 MacBook Pro Upgrade',
         targetAmount: 220000,
         currentAmount: 110000,
@@ -437,8 +439,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sampleBills: BillSubscription[] = [
       {
-        id: `bill_${Date.now()}_1`,
-        userId,
+        id: `demo_bill_${Date.now()}_1`,
+        userId: 'guest_default_user',
         title: 'DESCO Electricity Bill',
         amount: 3450,
         category: 'Utilities',
@@ -449,8 +451,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         createdAt: now.toISOString(),
       },
       {
-        id: `bill_${Date.now()}_2`,
-        userId,
+        id: `demo_bill_${Date.now()}_2`,
+        userId: 'guest_default_user',
         title: 'Netflix Premium UHD',
         amount: 1250,
         category: 'Entertainment',
@@ -464,8 +466,8 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const sampleInvestments: Investment[] = [
       {
-        id: `inv_${Date.now()}_1`,
-        userId,
+        id: `demo_inv_${Date.now()}_1`,
+        userId: 'guest_default_user',
         name: 'Monthly 5-Year Islamic DPS',
         type: 'dps',
         investedAmount: 120000,
@@ -494,15 +496,65 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('goals', sampleGoals);
     saveToLocalStorage('bills', sampleBills);
     saveToLocalStorage('investments', sampleInvestments);
-  }, [userId, saveToLocalStorage]);
+  }, [saveToLocalStorage]);
+
+  // Fallback Local Storage Loader & Saver
+  const loadFromLocalStorage = useCallback(() => {
+    try {
+      const storedAccs = localStorage.getItem(`finora_${userId}_accounts`);
+      const storedTxs = localStorage.getItem(`finora_${userId}_transactions`);
+      const storedLoans = localStorage.getItem(`finora_${userId}_loans`);
+      const storedBudgets = localStorage.getItem(`finora_${userId}_budgets`);
+      const storedGoals = localStorage.getItem(`finora_${userId}_goals`);
+      const storedBills = localStorage.getItem(`finora_${userId}_bills`);
+      const storedInvs = localStorage.getItem(`finora_${userId}_investments`);
+      const storedCats = localStorage.getItem(`finora_${userId}_categories`);
+
+      if (storedAccs) {
+        setAccounts(JSON.parse(storedAccs));
+        if (storedTxs) setTransactions(JSON.parse(storedTxs)); else setTransactions([]);
+        if (storedLoans) setLoans(JSON.parse(storedLoans)); else setLoans([]);
+        if (storedBudgets) setBudgets(JSON.parse(storedBudgets)); else setBudgets([]);
+        if (storedGoals) setSavingsGoals(JSON.parse(storedGoals)); else setSavingsGoals([]);
+        if (storedBills) setBills(JSON.parse(storedBills)); else setBills([]);
+        if (storedInvs) setInvestments(JSON.parse(storedInvs)); else setInvestments([]);
+        if (storedCats) setCategories(JSON.parse(storedCats));
+      } else {
+        if (isGuest) {
+          seedDemoGuestData();
+        } else {
+          seedCleanZeroUserData();
+        }
+      }
+    } catch (e) {
+      console.error('Error loading local storage:', e);
+      if (isGuest) {
+        seedDemoGuestData();
+      } else {
+        seedCleanZeroUserData();
+      }
+    }
+  }, [userId, isGuest, seedDemoGuestData, seedCleanZeroUserData]);
 
   // Real-time Firestore Synchronizer (with offline fallback)
   useEffect(() => {
+    // 1. Immediately wipe any previous user's in-memory data to guarantee complete isolation
+    setAccounts([]);
+    setTransactions([]);
+    setLoans([]);
+    setBudgets([]);
+    setSavingsGoals([]);
+    setBills([]);
+    setInvestments([]);
+
     if (!user || isGuest) {
       loadFromLocalStorage();
       setLoading(false);
       return;
     }
+
+    // Load this specific user's local offline cache first
+    loadFromLocalStorage();
 
     setSyncStatus('syncing');
     const unsubscribers: (() => void)[] = [];
@@ -516,9 +568,9 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setAccounts(accs);
           saveToLocalStorage('accounts', accs);
         } else {
-          // If Firestore is empty for this user, seed default accounts to state and immediately save to Firestore
+          // If Firestore is empty for this user, seed clean 0-balance accounts to state and immediately save to Firestore
           const now = new Date();
-          const initialAccounts: Account[] = DEFAULT_ACCOUNTS.map((acc, index) => ({
+          const initialAccounts: Account[] = CLEAN_STARTER_ACCOUNTS.map((acc, index) => ({
             id: `acc_${Date.now()}_${index}`,
             userId: user.uid,
             ...acc,
@@ -530,14 +582,14 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
           try {
             const batch = writeBatch(db);
-            batch.set(doc(db, 'users', user.uid), {
+            batch.set(doc(db, 'users', user.uid), cleanForFirestore({
               email: user.email || '',
               displayName: user.displayName || '',
               updatedAt: now.toISOString(),
-            }, { merge: true });
+            }), { merge: true });
 
             initialAccounts.forEach((acc) => {
-              batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc, { merge: true });
+              batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), cleanForFirestore(acc), { merge: true });
             });
             await batch.commit();
           } catch (e) {
@@ -863,7 +915,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/accounts`, id), newAcc);
+        await setDoc(doc(db, `users/${user.uid}/accounts`, id), cleanForFirestore(newAcc));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/accounts/${id}`);
       }
@@ -878,10 +930,10 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/accounts`, id), {
+        await updateDoc(doc(db, `users/${user.uid}/accounts`, id), cleanForFirestore({
           ...updates,
           updatedAt: new Date().toISOString(),
-        });
+        }));
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/accounts/${id}`);
       }
@@ -940,10 +992,10 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.set(doc(db, `users/${user.uid}/transactions`, id), newTx);
+        batch.set(doc(db, `users/${user.uid}/transactions`, id), cleanForFirestore(newTx));
         const targetAcc = updatedAccounts.find((a) => a.id === newTx.accountId);
         if (targetAcc) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), targetAcc, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), cleanForFirestore(targetAcc), { merge: true });
         }
         await batch.commit();
       } catch (err) {
@@ -987,12 +1039,12 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         batch.delete(doc(db, `users/${user.uid}/transactions`, id));
         const targetAcc = updatedAccounts.find((a) => a.id === tx.accountId);
         if (targetAcc) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), targetAcc, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, targetAcc.id), cleanForFirestore(targetAcc), { merge: true });
         }
         if (tx.type === 'transfer' && tx.targetAccountId) {
           const toAcc = updatedAccounts.find((a) => a.id === tx.targetAccountId);
           if (toAcc) {
-            batch.set(doc(db, `users/${user.uid}/accounts`, toAcc.id), toAcc, { merge: true });
+            batch.set(doc(db, `users/${user.uid}/accounts`, toAcc.id), cleanForFirestore(toAcc), { merge: true });
           }
         }
         await batch.commit();
@@ -1013,7 +1065,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/transactions`, id), updatedTx, { merge: true });
+        await setDoc(doc(db, `users/${user.uid}/transactions`, id), cleanForFirestore(updatedTx), { merge: true });
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/transactions/${id}`);
       }
@@ -1081,14 +1133,14 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.set(doc(db, `users/${user.uid}/transactions`, id), newTx);
+        batch.set(doc(db, `users/${user.uid}/transactions`, id), cleanForFirestore(newTx));
         const fromAccObj = updatedAccounts.find((a) => a.id === fromAccountId);
         const toAccObj = updatedAccounts.find((a) => a.id === toAccountId);
         if (fromAccObj) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), fromAccObj, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), cleanForFirestore(fromAccObj), { merge: true });
         }
         if (toAccObj) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), toAccObj, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), cleanForFirestore(toAccObj), { merge: true });
         }
         await batch.commit();
       } catch (err) {
@@ -1203,14 +1255,14 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.set(doc(db, `users/${user.uid}/loans`, loanId), newLoan);
-        batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
+        batch.set(doc(db, `users/${user.uid}/loans`, loanId), cleanForFirestore(newLoan));
+        batch.set(doc(db, `users/${user.uid}/transactions`, txId), cleanForFirestore(newTx));
         const targetAcc = updatedAccounts.find((a) => a.id === targetAccountId);
         if (targetAcc) {
-          batch.update(doc(db, `users/${user.uid}/accounts`, targetAccountId), {
+          batch.update(doc(db, `users/${user.uid}/accounts`, targetAccountId), cleanForFirestore({
             balance: targetAcc.balance,
             updatedAt: new Date().toISOString(),
-          });
+          }));
         }
         await batch.commit();
       } catch (err) {
@@ -1285,12 +1337,12 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const batch = writeBatch(db);
         const updatedLoanDoc = updatedLoans.find((l) => l.id === loanId);
         if (updatedLoanDoc) {
-          batch.set(doc(db, `users/${user.uid}/loans`, loanId), updatedLoanDoc, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/loans`, loanId), cleanForFirestore(updatedLoanDoc), { merge: true });
         }
-        batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
+        batch.set(doc(db, `users/${user.uid}/transactions`, txId), cleanForFirestore(newTx));
         const sourceAccObj = updatedAccounts.find((a) => a.id === fromAccountId);
         if (sourceAccObj) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), sourceAccObj, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, fromAccountId), cleanForFirestore(sourceAccObj), { merge: true });
         }
         await batch.commit();
       } catch (err) {
@@ -1363,12 +1415,12 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const batch = writeBatch(db);
         const updatedLoanDoc = updatedLoans.find((l) => l.id === loanId);
         if (updatedLoanDoc) {
-          batch.set(doc(db, `users/${user.uid}/loans`, loanId), updatedLoanDoc, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/loans`, loanId), cleanForFirestore(updatedLoanDoc), { merge: true });
         }
-        batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
+        batch.set(doc(db, `users/${user.uid}/transactions`, txId), cleanForFirestore(newTx));
         const targetAccObj = updatedAccounts.find((a) => a.id === toAccountId);
         if (targetAccObj) {
-          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), targetAccObj, { merge: true });
+          batch.set(doc(db, `users/${user.uid}/accounts`, toAccountId), cleanForFirestore(targetAccObj), { merge: true });
         }
         await batch.commit();
       } catch (err) {
@@ -1444,15 +1496,15 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (user && !isGuest) {
       try {
         const batch = writeBatch(db);
-        batch.set(doc(db, `users/${user.uid}/transactions`, txId), newTx);
-        batch.update(doc(db, `users/${user.uid}/accounts`, fromAccountId), {
+        batch.set(doc(db, `users/${user.uid}/transactions`, txId), cleanForFirestore(newTx));
+        batch.update(doc(db, `users/${user.uid}/accounts`, fromAccountId), cleanForFirestore({
           balance: (fromAcc.balance || 0) - amount,
           updatedAt: new Date().toISOString(),
-        });
-        batch.update(doc(db, `users/${user.uid}/accounts`, creditCardAccountId), {
+        }));
+        batch.update(doc(db, `users/${user.uid}/accounts`, creditCardAccountId), cleanForFirestore({
           balance: (ccAcc.balance || 0) + amount,
           updatedAt: new Date().toISOString(),
-        });
+        }));
         await batch.commit();
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/credit_card_payment`);
@@ -1474,7 +1526,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('budgets', updated);
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/budgets`, id), newBgt);
+        await setDoc(doc(db, `users/${user.uid}/budgets`, id), cleanForFirestore(newBgt));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/budgets/${id}`);
       }
@@ -1488,7 +1540,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('budgets', updated);
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/budgets`, id), { ...updates, updatedAt: new Date().toISOString() });
+        await updateDoc(doc(db, `users/${user.uid}/budgets`, id), cleanForFirestore({ ...updates, updatedAt: new Date().toISOString() }));
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/budgets/${id}`);
       }
@@ -1522,7 +1574,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('goals', updated);
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/savingsGoals`, id), newGoal);
+        await setDoc(doc(db, `users/${user.uid}/savingsGoals`, id), cleanForFirestore(newGoal));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/savingsGoals/${id}`);
       }
@@ -1536,7 +1588,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('goals', updated);
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/savingsGoals`, id), { ...updates, updatedAt: new Date().toISOString() });
+        await updateDoc(doc(db, `users/${user.uid}/savingsGoals`, id), cleanForFirestore({ ...updates, updatedAt: new Date().toISOString() }));
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/savingsGoals/${id}`);
       }
@@ -1590,7 +1642,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('bills', updated);
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/bills`, id), newBill);
+        await setDoc(doc(db, `users/${user.uid}/bills`, id), cleanForFirestore(newBill));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/bills/${id}`);
       }
@@ -1604,7 +1656,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('bills', updated);
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/bills`, id), { ...updates, updatedAt: new Date().toISOString() });
+        await updateDoc(doc(db, `users/${user.uid}/bills`, id), cleanForFirestore({ ...updates, updatedAt: new Date().toISOString() }));
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/bills/${id}`);
       }
@@ -1670,7 +1722,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('investments', updated);
     if (user && !isGuest) {
       try {
-        await setDoc(doc(db, `users/${user.uid}/investments`, id), newInv);
+        await setDoc(doc(db, `users/${user.uid}/investments`, id), cleanForFirestore(newInv));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}/investments/${id}`);
       }
@@ -1684,7 +1736,7 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     saveToLocalStorage('investments', updated);
     if (user && !isGuest) {
       try {
-        await updateDoc(doc(db, `users/${user.uid}/investments`, id), { ...updates, updatedAt: new Date().toISOString() });
+        await updateDoc(doc(db, `users/${user.uid}/investments`, id), cleanForFirestore({ ...updates, updatedAt: new Date().toISOString() }));
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/investments/${id}`);
       }
@@ -1824,18 +1876,29 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Check if data is nested inside a payload or data wrapper (from snapshots or cloud backups)
       if (data.payload && typeof data.payload === 'object') {
         data = data.payload;
-      } else if (data.data && typeof data.data === 'object' && (data.data.accounts || data.data.transactions)) {
+      } else if (data.data && typeof data.data === 'object' && (data.data.accounts || data.data.transactions || Array.isArray(data.data))) {
         data = data.data;
       }
 
-      const importedAccounts = Array.isArray(data.accounts) ? data.accounts : (data.accounts ? [data.accounts] : accounts);
-      const importedTransactions = Array.isArray(data.transactions) ? data.transactions : (data.transactions ? [data.transactions] : transactions);
-      const importedLoans = Array.isArray(data.loans) ? data.loans : loans;
-      const importedBudgets = Array.isArray(data.budgets) ? data.budgets : budgets;
-      const importedSavings = Array.isArray(data.savingsGoals) ? data.savingsGoals : (Array.isArray(data.goals) ? data.goals : savingsGoals);
-      const importedBills = Array.isArray(data.bills) ? data.bills : bills;
-      const importedInvestments = Array.isArray(data.investments) ? data.investments : investments;
-      const importedCategories = Array.isArray(data.categories) && data.categories.length > 0 ? data.categories : categories;
+      const currentUid = user?.uid || userId;
+
+      const rawAccounts = Array.isArray(data.accounts) ? data.accounts : (data.accounts ? [data.accounts] : []);
+      const rawTransactions = Array.isArray(data.transactions) ? data.transactions : (data.transactions ? [data.transactions] : []);
+      const rawLoans = Array.isArray(data.loans) ? data.loans : [];
+      const rawBudgets = Array.isArray(data.budgets) ? data.budgets : [];
+      const rawSavings = Array.isArray(data.savingsGoals) ? data.savingsGoals : (Array.isArray(data.goals) ? data.goals : []);
+      const rawBills = Array.isArray(data.bills) ? data.bills : [];
+      const rawInvestments = Array.isArray(data.investments) ? data.investments : [];
+      const rawCategories = Array.isArray(data.categories) && data.categories.length > 0 ? data.categories : categories;
+
+      const importedAccounts: Account[] = rawAccounts.map((a: any) => ({ ...a, userId: currentUid }));
+      const importedTransactions: Transaction[] = rawTransactions.map((t: any) => ({ ...t, userId: currentUid }));
+      const importedLoans: Loan[] = rawLoans.map((l: any) => ({ ...l, userId: currentUid }));
+      const importedBudgets: Budget[] = rawBudgets.map((b: any) => ({ ...b, userId: currentUid }));
+      const importedSavings: SavingsGoal[] = rawSavings.map((g: any) => ({ ...g, userId: currentUid }));
+      const importedBills: BillSubscription[] = rawBills.map((b: any) => ({ ...b, userId: currentUid }));
+      const importedInvestments: Investment[] = rawInvestments.map((i: any) => ({ ...i, userId: currentUid }));
+      const importedCategories: Category[] = rawCategories;
 
       setAccounts(importedAccounts);
       setTransactions(importedTransactions);
@@ -1864,10 +1927,25 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         try {
           const batch = writeBatch(db);
           for (const acc of importedAccounts) {
-            batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc);
+            batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), cleanForFirestore(acc), { merge: true });
           }
-          for (const tx of importedTransactions.slice(0, 100)) {
-            batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), tx);
+          for (const tx of importedTransactions) {
+            batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), cleanForFirestore(tx), { merge: true });
+          }
+          for (const loan of importedLoans) {
+            batch.set(doc(db, `users/${user.uid}/loans`, loan.id), cleanForFirestore(loan), { merge: true });
+          }
+          for (const bgt of importedBudgets) {
+            batch.set(doc(db, `users/${user.uid}/budgets`, bgt.id), cleanForFirestore(bgt), { merge: true });
+          }
+          for (const goal of importedSavings) {
+            batch.set(doc(db, `users/${user.uid}/savingsGoals`, goal.id), cleanForFirestore(goal), { merge: true });
+          }
+          for (const bill of importedBills) {
+            batch.set(doc(db, `users/${user.uid}/bills`, bill.id), cleanForFirestore(bill), { merge: true });
+          }
+          for (const inv of importedInvestments) {
+            batch.set(doc(db, `users/${user.uid}/investments`, inv.id), cleanForFirestore(inv), { merge: true });
           }
           await batch.commit();
         } catch (err) {
@@ -1894,59 +1972,59 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // 1. User profile doc
       const userRef = doc(db, 'users', user.uid);
-      batch.set(userRef, {
+      batch.set(userRef, cleanForFirestore({
         email: user.email || '',
         displayName: user.displayName || '',
         lastActive: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      }), { merge: true });
       count++;
 
       // 2. Accounts
       accounts.forEach((acc) => {
-        batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), acc, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), cleanForFirestore(acc), { merge: true });
         count++;
       });
 
       // 3. Transactions
       transactions.forEach((tx) => {
-        batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), tx, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/transactions`, tx.id), cleanForFirestore(tx), { merge: true });
         count++;
       });
 
       // 4. Loans
       loans.forEach((loan) => {
-        batch.set(doc(db, `users/${user.uid}/loans`, loan.id), loan, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/loans`, loan.id), cleanForFirestore(loan), { merge: true });
         count++;
       });
 
       // 5. Budgets
       budgets.forEach((bgt) => {
-        batch.set(doc(db, `users/${user.uid}/budgets`, bgt.id), bgt, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/budgets`, bgt.id), cleanForFirestore(bgt), { merge: true });
         count++;
       });
 
       // 6. Savings Goals
       savingsGoals.forEach((goal) => {
-        batch.set(doc(db, `users/${user.uid}/savingsGoals`, goal.id), goal, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/savingsGoals`, goal.id), cleanForFirestore(goal), { merge: true });
         count++;
       });
 
       // 7. Bills
       bills.forEach((bill) => {
-        batch.set(doc(db, `users/${user.uid}/bills`, bill.id), bill, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/bills`, bill.id), cleanForFirestore(bill), { merge: true });
         count++;
       });
 
       // 8. Investments
       investments.forEach((inv) => {
-        batch.set(doc(db, `users/${user.uid}/investments`, inv.id), inv, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/investments`, inv.id), cleanForFirestore(inv), { merge: true });
         count++;
       });
 
       // 9. Categories
       categories.forEach((cat) => {
-        batch.set(doc(db, `users/${user.uid}/categories`, cat.id), cat, { merge: true });
+        batch.set(doc(db, `users/${user.uid}/categories`, cat.id), cleanForFirestore(cat), { merge: true });
         count++;
       });
 
@@ -1960,9 +2038,77 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const resetAllData = async () => {
-    localStorage.clear();
-    seedInitialData();
+  // Reset all account data to clean 0 (Zero) state
+  const resetAllData = async (): Promise<void> => {
+    try {
+      const keysToRemove = [
+        `finora_${userId}_accounts`,
+        `finora_${userId}_transactions`,
+        `finora_${userId}_loans`,
+        `finora_${userId}_budgets`,
+        `finora_${userId}_goals`,
+        `finora_${userId}_bills`,
+        `finora_${userId}_investments`,
+        `finora_${userId}_snapshots`,
+        `finora_${userId}_autobackup_config`,
+      ];
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn('Local storage clear error:', e);
+    }
+
+    // Set state to fresh clean 0-balance accounts and empty arrays
+    seedCleanZeroUserData();
+
+    // If real user is connected to Firestore, wipe Firestore collections
+    if (user && !isGuest) {
+      try {
+        setSyncStatus('syncing');
+        const batch = writeBatch(db);
+
+        accounts.forEach((acc) => {
+          batch.delete(doc(db, `users/${user.uid}/accounts`, acc.id));
+        });
+        transactions.forEach((tx) => {
+          batch.delete(doc(db, `users/${user.uid}/transactions`, tx.id));
+        });
+        loans.forEach((loan) => {
+          batch.delete(doc(db, `users/${user.uid}/loans`, loan.id));
+        });
+        budgets.forEach((bgt) => {
+          batch.delete(doc(db, `users/${user.uid}/budgets`, bgt.id));
+        });
+        savingsGoals.forEach((goal) => {
+          batch.delete(doc(db, `users/${user.uid}/savingsGoals`, goal.id));
+        });
+        bills.forEach((bill) => {
+          batch.delete(doc(db, `users/${user.uid}/bills`, bill.id));
+        });
+        investments.forEach((inv) => {
+          batch.delete(doc(db, `users/${user.uid}/investments`, inv.id));
+        });
+
+        const now = new Date();
+        const freshStarterAccounts: Account[] = CLEAN_STARTER_ACCOUNTS.map((acc, index) => ({
+          id: `acc_${Date.now()}_${index}`,
+          userId: user.uid,
+          ...acc,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        }));
+
+        freshStarterAccounts.forEach((acc) => {
+          batch.set(doc(db, `users/${user.uid}/accounts`, acc.id), cleanForFirestore(acc));
+        });
+
+        await batch.commit();
+        setAccounts(freshStarterAccounts);
+        saveToLocalStorage('accounts', freshStarterAccounts);
+        setSyncStatus('synced');
+      } catch (err) {
+        console.error('Firestore reset error:', err);
+      }
+    }
   };
 
   return (

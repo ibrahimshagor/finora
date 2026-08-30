@@ -337,9 +337,9 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
   return (
     <>
-      {/* Desktop Persistent / Collapsible Sidebar */}
+      {/* Desktop Persistent / Collapsible Sidebar - Fixed on Left */}
       <aside 
-        className={`hidden lg:block sticky top-0 h-screen z-30 transition-all duration-300 ease-in-out flex-shrink-0 ${
+        className={`hidden lg:block fixed top-0 bottom-0 left-0 h-screen z-30 transition-all duration-300 ease-in-out flex-shrink-0 shadow-sm ${
           isCollapsedDesktop ? 'w-20' : 'w-64 xl:w-72'
         }`}
       >

@@ -24,6 +24,7 @@ import { AboutModal } from './components/common/AboutModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { AuthView } from './components/auth/AuthView';
 import { GoogleQuickPickerModal } from './components/auth/GoogleQuickPickerModal';
+import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { Account, Transaction } from './types';
 
 const MainAppContent: React.FC = () => {
@@ -216,12 +217,15 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Main Workspace Column */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <div className={`flex-1 flex flex-col min-w-0 min-h-screen transition-[padding] duration-300 ease-in-out ${
+        isCollapsedDesktop ? 'lg:pl-20' : 'lg:pl-64 xl:pl-72'
+      }`}>
         
         {/* Top Header */}
         <Header
           onToggleMenu={() => setIsMobileMenuOpen(true)}
           activeTabTitle={getActiveTitle()}
+          isCollapsedDesktop={isCollapsedDesktop}
           onOpenNewTransaction={() => handleOpenNewTransaction('expense')}
           onOpenAIAssistant={() => {
             setIsAiViewOpen(true);
@@ -237,7 +241,7 @@ const MainAppContent: React.FC = () => {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-18 sm:pt-20 pb-28 lg:pb-12">
           {/* Breadcrumb if in AI or Settings */}
           {(isAiViewOpen || isSettingsViewOpen) && (
             <div className="mb-4 flex items-center gap-2 text-xs">
@@ -246,7 +250,7 @@ const MainAppContent: React.FC = () => {
                   setIsAiViewOpen(false);
                   setIsSettingsViewOpen(false);
                 }}
-                className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
+                className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline cursor-pointer"
               >
                 ← মূল ড্যাশবোর্ডে ফিরুন
               </button>
@@ -261,9 +265,26 @@ const MainAppContent: React.FC = () => {
         </main>
 
         {/* Global Footer */}
-        <Footer />
+        <div className="pb-16 lg:pb-0">
+          <Footer />
+        </div>
 
       </div>
+
+      {/* Android Style Mobile Bottom Navigation */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        isAiActive={isAiViewOpen}
+        isSettingsActive={isSettingsViewOpen}
+        onSelectTab={(tab) => {
+          setIsAiViewOpen(false);
+          setIsSettingsViewOpen(false);
+          setActiveTab(tab);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onOpenNewTransaction={() => handleOpenNewTransaction('expense')}
+        onOpenMenu={() => setIsMobileMenuOpen(true)}
+      />
 
       {/* Modals */}
       <TransactionModal

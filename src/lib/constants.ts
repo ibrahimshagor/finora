@@ -192,7 +192,42 @@ export const DEFAULT_EXPENSE_CATEGORIES: Category[] = [
   }
 ];
 
-export const DEFAULT_ACCOUNTS = [
+export const CLEAN_STARTER_ACCOUNTS = [
+  {
+    name: 'Cash in Hand / নগদ টাকা',
+    type: 'cash' as const,
+    institutionName: 'Wallet',
+    balance: 0,
+    initialBalance: 0,
+    color: '#10b981',
+    icon: 'Banknote',
+    notes: 'Physical cash in hand and wallet'
+  },
+  {
+    name: 'Bank Account / ব্যাংক হিসাব',
+    type: 'bank' as const,
+    institutionName: 'Bank',
+    accountNumber: '',
+    balance: 0,
+    initialBalance: 0,
+    color: '#3b82f6',
+    icon: 'Building2',
+    notes: 'Primary bank account'
+  },
+  {
+    name: 'Mobile Wallet / বিকাশ বা নগদ',
+    type: 'wallet' as const,
+    institutionName: 'bKash / Nagad',
+    accountNumber: '',
+    balance: 0,
+    initialBalance: 0,
+    color: '#e11d48',
+    icon: 'Smartphone',
+    notes: 'Mobile financial service'
+  }
+];
+
+export const DEMO_GUEST_ACCOUNTS = [
   {
     name: 'Cash in Hand / নগদ টাকা',
     type: 'cash' as const,
@@ -251,3 +286,6 @@ export const DEFAULT_ACCOUNTS = [
     notes: 'Shopping & travel rewards card'
   }
 ];
+
+export const DEFAULT_ACCOUNTS = CLEAN_STARTER_ACCOUNTS;
+

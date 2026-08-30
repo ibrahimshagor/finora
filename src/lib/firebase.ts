@@ -94,3 +94,26 @@ export async function testFirebaseConnection(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Recursively removes all undefined fields from an object or array before sending to Firestore
+ * to prevent 'WriteBatch.set() called with invalid data. Unsupported field value: undefined' errors.
+ */
+export function cleanForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => cleanForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        cleaned[key] = cleanForFirestore(val);
+      }
+    }
+    return cleaned as unknown as T;
+  }
+  return data;
+}

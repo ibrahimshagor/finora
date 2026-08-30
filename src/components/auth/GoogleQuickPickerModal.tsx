@@ -4,8 +4,8 @@ import { X, Check, Copy, ArrowRight, ShieldCheck, Mail, User } from 'lucide-reac
 
 export const GoogleQuickPickerModal: React.FC = () => {
   const { showGoogleQuickPicker, setShowGoogleQuickPicker, loginWithDirectGoogleAccount } = useAuth();
-  const [email, setEmail] = useState('ibrahimshagor.official@gmail.com');
-  const [displayName, setDisplayName] = useState('Md. Ibrahim Hossain');
+  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -60,8 +60,8 @@ export const GoogleQuickPickerModal: React.FC = () => {
               </svg>
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Google অ্যাকাউন্ট নির্বাচন করুন</h3>
-              <p className="text-[11px] text-slate-400">আপনার Google প্রোফাইল দিয়ে সরাসরি প্রবেশ করুন</p>
+              <h3 className="text-sm font-bold text-white">Google অ্যাকাউন্ট নির্বাচন</h3>
+              <p className="text-[11px] text-slate-400">আপনার Google ইমেইল দিয়ে প্রবেশ করুন</p>
             </div>
           </div>
 
@@ -74,38 +74,12 @@ export const GoogleQuickPickerModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Quick 1-Click Card */}
-        <div className="p-3.5 bg-slate-800/60 border border-slate-700 rounded-2xl space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-emerald-600 text-white font-bold text-base flex items-center justify-center shrink-0 border border-emerald-400/40">
-              {displayName.charAt(0) || 'G'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white truncate">{displayName}</p>
-              <p className="text-[11px] text-slate-400 truncate">{email}</p>
-              <div className="flex items-center gap-1 mt-0.5 text-[10px] text-emerald-400 font-medium">
-                <ShieldCheck className="w-3 h-3" />
-                <span>ফায়ারবেস ক্লাউড সিঙ্ক সক্রিয়</span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => handleConfirm()}
-            disabled={isSubmitting}
-            className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <span>এই অ্যাকাউন্ট দিয়ে প্রবেশ করুন</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-
         {/* Change Account Form */}
-        <form onSubmit={handleConfirm} className="space-y-3 pt-1">
-          <p className="text-[11px] font-semibold text-slate-400">অথবা অন্য Google ইমেইল দিন:</p>
-          
+        <form onSubmit={handleConfirm} className="space-y-3.5">
           <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+              আপনার Google ইমেইল ঠিকানা:
+            </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -113,13 +87,16 @@ export const GoogleQuickPickerModal: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="another.account@gmail.com"
-                className="w-full pl-10 pr-4 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="your.name@gmail.com"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
 
           <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+              আপনার পুরো নাম (ঐচ্ছিক):
+            </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -127,17 +104,23 @@ export const GoogleQuickPickerModal: React.FC = () => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="আপনার নাম (যেমন: Tanvir Ahmed)"
-                className="w-full pl-10 pr-4 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
           </div>
 
+          <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>সম্পূর্ণ স্বতন্ত্র অ্যাকাউন্ট ও ক্লাউড ডাটাবেস সংরক্ষিত হবে</span>
+          </div>
+
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="w-full py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            disabled={isSubmitting || !email.trim()}
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer"
           >
-            সংযুক্ত করুন ও প্রবেশ করুন
+            <span>Google অ্যাকাউন্টে প্রবেশ করুন</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </form>
 
@@ -155,7 +138,7 @@ export const GoogleQuickPickerModal: React.FC = () => {
             </button>
           </div>
           <p className="text-[10px] text-slate-500 leading-normal">
-            প্রয়োজনে Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains-এ ডোমেইনটি যোগ করতে পারেন।
+            Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains-এ ডোমেইনটি যোগ করলে গুগল পপ-আপ সরাসরি কাজ করবে।
           </p>
         </div>
 

@@ -167,33 +167,43 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         notes,
       });
     } else if (editingTransaction) {
-      await updateTransaction(editingTransaction.id, {
+      const updatePayload: Partial<Transaction> = {
         type,
         amount: numAmount,
         date,
         accountId,
-        targetAccountId: type === 'transfer' ? targetAccountId : undefined,
-        categoryId: type !== 'transfer' ? categoryId : undefined,
-        subcategory: type !== 'transfer' ? subcategory : undefined,
-        payerPayee,
-        description,
-        notes,
-        receiptUrl,
-      });
+        payerPayee: payerPayee || '',
+        description: description || '',
+        notes: notes || '',
+        receiptUrl: receiptUrl || '',
+      };
+      if (type === 'transfer' && targetAccountId) {
+        updatePayload.targetAccountId = targetAccountId;
+      }
+      if (type !== 'transfer') {
+        if (categoryId) updatePayload.categoryId = categoryId;
+        if (subcategory) updatePayload.subcategory = subcategory;
+      }
+      await updateTransaction(editingTransaction.id, updatePayload);
     } else {
-      await addTransaction({
+      const addPayload: any = {
         type,
         amount: numAmount,
         date,
         accountId,
-        targetAccountId: type === 'transfer' ? targetAccountId : undefined,
-        categoryId: type !== 'transfer' ? categoryId : undefined,
-        subcategory: type !== 'transfer' ? subcategory : undefined,
-        payerPayee,
-        description,
-        notes,
-        receiptUrl,
-      });
+        payerPayee: payerPayee || '',
+        description: description || '',
+        notes: notes || '',
+        receiptUrl: receiptUrl || '',
+      };
+      if (type === 'transfer' && targetAccountId) {
+        addPayload.targetAccountId = targetAccountId;
+      }
+      if (type !== 'transfer') {
+        if (categoryId) addPayload.categoryId = categoryId;
+        if (subcategory) addPayload.subcategory = subcategory;
+      }
+      await addTransaction(addPayload);
     }
 
     onClose();

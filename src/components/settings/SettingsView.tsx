@@ -94,6 +94,9 @@ export const SettingsView: React.FC = () => {
   const [dbTestResult, setDbTestResult] = useState<string | null>(null);
   const [isPushingToFirestore, setIsPushingToFirestore] = useState(false);
   const [firestorePushResult, setFirestorePushResult] = useState<string | null>(null);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
   // Auto Backup Config & Snapshot state
   const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(() => getAutoBackupConfig(userKey));
@@ -436,6 +439,25 @@ export const SettingsView: React.FC = () => {
     if (window.confirm('আপনি কি এই ব্যাকআপ স্ন্যাপশটটি মুছে ফেলতে চান?')) {
       const updated = deleteStoredSnapshot(id, userKey);
       setSnapshots(updated);
+    }
+  };
+
+  // Reset Account Data to Clean ZERO State
+  const handleConfirmReset = async () => {
+    setIsResetting(true);
+    try {
+      if (typeof resetAllData === 'function') {
+        await resetAllData();
+      } else if (typeof resetToDemoData === 'function') {
+        await resetToDemoData();
+      }
+      setResetSuccessMessage('✅ আপনার অ্যাকাউন্টের সমস্ত তথ্য মুছে সফলভাবে ০ (শূন্য) করা হয়েছে!');
+      setShowResetConfirmModal(false);
+      setTimeout(() => setResetSuccessMessage(null), 6000);
+    } catch (e: any) {
+      alert(`রিসেট করতে সমস্যা হয়েছে: ${e.message}`);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -1049,29 +1071,33 @@ export const SettingsView: React.FC = () => {
           </p>
         )}
 
-        {/* Reset Demo Data */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        {/* Reset Account Data to Zero */}
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <span className="text-xs font-semibold text-rose-600 block">ডেমো ডেটা রিসেট</span>
-            <span className="text-[11px] text-slate-400">প্রাথমিক টেস্ট অ্যাকাউন্টে ফিরে যেতে এটি ব্যবহার করুন।</span>
+            <span className="text-xs font-bold text-rose-600 dark:text-rose-400 block flex items-center gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>অ্যাকাউন্ট ডাটা রিসেট (সব শূন্য করুন)</span>
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              সমস্ত ব্যালেন্স, লেনদেন, ঋণ, বাজেট ও বিলের তথ্য মুছে অ্যাকাউন্টটি সম্পূর্ণ শূন্য (০) এবং ফ্রেশ করতে এটি ব্যবহার করুন।
+            </span>
           </div>
 
           <button
-            onClick={() => {
-              const confirmMsg = language === 'bn' ? 'আপনি কি নিশ্চিত যে ডেমো ডেটায় রিসেট করতে চান?' : 'Are you sure you want to reset to demo data?';
-              if (window.confirm(confirmMsg)) {
-                if (typeof resetToDemoData === 'function') {
-                  resetToDemoData();
-                } else if (typeof resetAllData === 'function') {
-                  resetAllData();
-                }
-              }
-            }}
-            className="px-3.5 py-2 border border-rose-200 dark:border-rose-800 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl text-xs font-semibold transition-colors"
+            type="button"
+            onClick={() => setShowResetConfirmModal(true)}
+            className="shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
-            {language === 'bn' ? 'রিসেট করুন' : 'Reset Data'}
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>অ্যাকাউন্ট রিসেট করুন</span>
           </button>
         </div>
+
+        {resetSuccessMessage && (
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-semibold text-rose-800 dark:text-rose-300">
+            {resetSuccessMessage}
+          </div>
+        )}
 
       </div>
 
@@ -1294,6 +1320,69 @@ export const SettingsView: React.FC = () => {
                 className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold"
               >
                 বন্ধ করুন
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Account Zero Reset Confirmation Modal */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 rounded-2xl p-6 shadow-2xl space-y-5">
+            
+            <div className="flex items-center gap-3 border-b border-rose-100 dark:border-rose-900/50 pb-3">
+              <div className="p-2.5 bg-rose-100 dark:bg-rose-950/80 rounded-xl text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  অ্যাকাউন্ট সম্পূর্ণ রিসেট সতর্কতা
+                </h3>
+                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
+                  সকল ডাটা মুছে ০ (শূন্য) হবে
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+              <p className="leading-relaxed">
+                আপনি কি নিশ্চিত যে আপনার অ্যাকাউন্টের সমস্ত তথ্য (লেনদেন, অ্যাকাউন্ট ব্যালেন্স, ঋণ, বাজেট, সঞ্চয়ী লক্ষ্য, বিল ও বিনিয়োগ) স্থায়ীভাবে মুছে ফেলে সবকিছু <strong>০ (শূন্য)</strong> করতে চান?
+              </p>
+              
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-[11px] text-rose-800 dark:text-rose-300 font-medium">
+                ⚠️ সতর্কবার্তা: এই প্রক্রিয়াটি সম্পন্ন হওয়ার পর পূর্বের কোনো ডাটা পুনরুদ্ধার করা যাবে না। যদি প্রয়োজন হয়, রিসেট করার পূর্বে "JSON ব্যাকআপ ফাইল নামান" বাটনে ক্লিক করে একটি ব্যাকআপ কপি সংরক্ষণ করে রাখুন।
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-4 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirmModal(false)}
+                disabled={isResetting}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                বাতিল করুন
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmReset}
+                disabled={isResetting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                {isResetting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>রিসেট হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>হ্যাঁ, সবকিছু ০ করুন</span>
+                  </>
+                )}
               </button>
             </div>
 
