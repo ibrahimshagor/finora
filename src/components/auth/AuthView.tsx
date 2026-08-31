@@ -108,7 +108,7 @@ export const AuthView: React.FC = () => {
       await registerWithEmail(cleanEmail, loginPassword, formattedName);
       setSuccessMessage('অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! ড্যাশবোর্ডে প্রবেশ করা হচ্ছে...');
     } catch (err: any) {
-      console.error('Auto register error:', err);
+      console.warn('Auto register notice:', err?.code || err?.message);
       const code = err.code || '';
       setErrorDetailsCode(code);
       if (code === 'auth/email-already-in-use') {
@@ -134,7 +134,7 @@ export const AuthView: React.FC = () => {
       const formattedName = derivedName.charAt(0).toUpperCase() + derivedName.slice(1);
       await loginWithDirectGoogleAccount(cleanEmail, formattedName);
     } catch (err: any) {
-      console.error('Direct Google login error:', err);
+      console.warn('Direct Google login notice:', err?.code || err?.message);
       setErrorMessage('Google অ্যাকাউন্টে প্রবেশ করতে সমস্যা হয়েছে।');
     } finally {
       setIsSubmitting(false);
@@ -158,7 +158,7 @@ export const AuthView: React.FC = () => {
     try {
       await loginWithEmail(cleanEmail, loginPassword);
     } catch (err: any) {
-      console.error('Login action handled:', err);
+      console.warn('Login action handled:', err?.code || err?.message);
       const code = err.code || '';
       setErrorDetailsCode(code);
       if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
@@ -211,7 +211,7 @@ export const AuthView: React.FC = () => {
       await registerWithEmail(cleanEmail, regPassword, cleanName);
       setSuccessMessage('অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! আপনাকে ড্যাশবোর্ডে নিয়ে যাওয়া হচ্ছে...');
     } catch (err: any) {
-      console.error(err);
+      console.warn('Registration notice:', err?.code || err?.message);
       const code = err.code || '';
       setErrorDetailsCode(code);
       if (code === 'auth/email-already-in-use') {

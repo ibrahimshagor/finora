@@ -186,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('finora_google_user');
       await signInWithEmailAndPassword(auth, email.trim(), pass);
     } catch (err: any) {
-      console.error('Email Login Error:', err);
+      console.warn('Email Login Notice:', err?.code || err?.message);
       let userMsg = 'লগইন ব্যর্থ হয়েছে। ইমেইল এবং পাসওয়ার্ড সঠিক কিনা পরীক্ষা করুন।';
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         userMsg = 'ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে। আপনি যদি নতুন ব্যবহারকারী হন তবে প্রথমে অ্যাকাউন্ট তৈরি (Sign Up) করুন।';
@@ -215,7 +215,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateProfile(userCred.user, { displayName: name.trim() });
       }
     } catch (err: any) {
-      console.error('Registration Error:', err);
+      console.warn('Registration Notice:', err?.code || err?.message);
       let userMsg = 'নিবন্ধন সম্পন্ন করা যায়নি।';
       if (err.code === 'auth/email-already-in-use') {
         userMsg = 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। লগইন করার চেষ্টা করুন।';
