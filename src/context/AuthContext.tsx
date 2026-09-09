@@ -74,8 +74,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 3. Listen to real Firebase Auth state
+    // 3. Listen to real Firebase Auth state with safety fallback timeout
+    const authTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      clearTimeout(authTimeout);
       const isCustomSession = localStorage.getItem('finora_google_user') || localStorage.getItem('finora_guest_user');
       if (!isCustomSession) {
         setUser(currentUser);
@@ -84,7 +89,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(authTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const clearError = () => setError(null);
