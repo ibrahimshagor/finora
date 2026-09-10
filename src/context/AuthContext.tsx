@@ -18,10 +18,13 @@ interface AuthContextType {
   loading: boolean;
   isGuest: boolean;
   isGuestMode: boolean;
+  isSuperAdmin: boolean;
   loginWithGoogle: () => Promise<void>;
   loginWithDirectGoogleAccount: (email: string, displayName?: string, photoURL?: string) => Promise<void>;
   loginWithEmail: (e: string, p: string) => Promise<void>;
   registerWithEmail: (e: string, p: string, name: string) => Promise<void>;
+  loginAsSuperAdmin: (pin?: string) => Promise<void>;
+  isOwnerEmail: (email?: string) => boolean;
   setPasswordForAccount: (newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   loginAsGuest: () => void;
@@ -32,23 +35,39 @@ interface AuthContextType {
   setShowGoogleQuickPicker: (show: boolean) => void;
 }
 
+const SUPER_ADMIN_EMAIL = 'ibrahimshagor.official@gmail.com';
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
+  const [isSuperAdminState, setIsSuperAdminState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showGoogleQuickPicker, setShowGoogleQuickPicker] = useState(false);
 
+  const isOwnerEmail = (email?: string): boolean => {
+    if (!email) return false;
+    return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+  };
+
+  const isSuperAdmin = isSuperAdminState || isOwnerEmail(user?.email || undefined);
+
   useEffect(() => {
-    // 1. Check if direct Google user session is stored in localStorage
+    // 1. Check if super admin flag is stored
+    const storedAdmin = localStorage.getItem('finora_is_super_admin') === 'true';
+
+    // 2. Check if direct Google user session is stored in localStorage
     const storedGoogleUser = localStorage.getItem('finora_google_user');
     if (storedGoogleUser) {
       try {
         const googleUserData = JSON.parse(storedGoogleUser);
         setUser(googleUserData);
         setIsGuest(false);
+        if (storedAdmin || isOwnerEmail(googleUserData?.email)) {
+          setIsSuperAdminState(true);
+        }
         setLoading(false);
         // Ensure background Firebase session for Firestore writes
         if (!auth.currentUser) {
@@ -60,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 2. Check if guest session is stored in localStorage
+    // 3. Check if guest session is stored in localStorage
     const storedGuest = localStorage.getItem('finora_guest_user');
     if (storedGuest) {
       try {
@@ -74,7 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 3. Listen to real Firebase Auth state with safety fallback timeout
+    // 4. Listen to real Firebase Auth state with safety fallback timeout
     const authTimeout = setTimeout(() => {
       setLoading(false);
     }, 1500);
@@ -85,6 +104,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isCustomSession) {
         setUser(currentUser);
         setIsGuest(false);
+        if (storedAdmin || isOwnerEmail(currentUser?.email || undefined)) {
+          setIsSuperAdminState(true);
+        }
       }
       setLoading(false);
     });
@@ -100,7 +122,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Authenticate user directly with any chosen Google Profile metadata & connect to Firebase
   const loginWithDirectGoogleAccount = async (email: string, displayName?: string, photoURL?: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const name = displayName?.trim() || cleanEmail.split('@')[0];
+    const isAdmin = isOwnerEmail(cleanEmail);
+    const name = displayName?.trim() || (isAdmin ? 'Md. Ibrahim Hossain' : cleanEmail.split('@')[0]);
     
     // Ensure Firebase auth session is active for Firestore
     try {
@@ -119,7 +142,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       uid: uniqueUserUid,
       email: cleanEmail,
       displayName: name,
-      photoURL: photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=10b981&color=fff`,
+      photoURL: photoURL || (isAdmin ? 'https://ui-avatars.com/api/?name=Ibrahim+Hossain&background=059669&color=fff' : `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=10b981&color=fff`),
       emailVerified: true,
       isAnonymous: false,
     } as unknown as User;
@@ -127,10 +150,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('finora_google_user', JSON.stringify(googleUser));
     localStorage.removeItem('finora_guest_user');
 
+    if (isAdmin) {
+      localStorage.setItem('finora_is_super_admin', 'true');
+      setIsSuperAdminState(true);
+    } else {
+      localStorage.removeItem('finora_is_super_admin');
+      setIsSuperAdminState(false);
+    }
+
     setUser(googleUser);
     setIsGuest(false);
     setError(null);
     setShowGoogleQuickPicker(false);
+  };
+
+  // Instant login as Super Admin (Platform Owner: Md. Ibrahim Hossain / TIKMERK IT)
+  const loginAsSuperAdmin = async (pin?: string) => {
+    // If PIN is supplied, check against master PIN (default: 123456 or tikmerk2026)
+    if (pin && pin !== '123456' && pin !== 'tikmerk2026' && pin !== '2026') {
+      throw new Error('ভুল সুপার অ্যাডমিন পিন কোড প্রদান করা হয়েছে।');
+    }
+
+    await loginWithDirectGoogleAccount(
+      SUPER_ADMIN_EMAIL,
+      'Md. Ibrahim Hossain (Super Admin)',
+      'https://ui-avatars.com/api/?name=Ibrahim+Hossain&background=047857&color=fff'
+    );
+    localStorage.setItem('finora_is_super_admin', 'true');
+    setIsSuperAdminState(true);
   };
 
   const loginWithGoogle = async () => {
@@ -149,12 +196,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('finora_google_user');
         setUser(result.user);
         setIsGuest(false);
+        if (isOwnerEmail(result.user.email || undefined)) {
+          localStorage.setItem('finora_is_super_admin', 'true');
+          setIsSuperAdminState(true);
+        }
         setError(null);
       }
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err?.code || err?.message);
 
-      // If unauthorized domain or popup issue, seamlessly open the Google Account Quick Picker
+      // If unauthorized domain or popup issue, seamlessly open the Google Account Assistant
       if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
         setShowGoogleQuickPicker(true);
         return;
@@ -187,14 +238,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
+    const cleanEmail = email.trim().toLowerCase();
     try {
       setError(null);
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
       localStorage.removeItem('finora_google_user');
-      await signInWithEmailAndPassword(auth, email.trim(), pass);
+      const result = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+      if (isOwnerEmail(result.user.email || cleanEmail)) {
+        localStorage.setItem('finora_is_super_admin', 'true');
+        setIsSuperAdminState(true);
+      }
     } catch (err: any) {
       console.warn('Email Login Notice:', err?.code || err?.message);
+      
+      // Fallback check: check if user registered in local storage repository
+      const localUsers = JSON.parse(localStorage.getItem('finora_local_auth_users') || '{}');
+      const registeredUser = localUsers[cleanEmail];
+      if (registeredUser && registeredUser.password === pass) {
+        // Authenticate via local credentials + background Firebase session
+        const fallbackUser = {
+          uid: `usr_${cleanEmail.replace(/[^a-z0-9]/gi, '_')}`,
+          email: cleanEmail,
+          displayName: registeredUser.name || cleanEmail.split('@')[0],
+          photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(registeredUser.name || 'User')}&background=059669&color=fff`,
+          emailVerified: true,
+          isAnonymous: false,
+        } as unknown as User;
+
+        localStorage.setItem('finora_google_user', JSON.stringify(fallbackUser));
+        if (isOwnerEmail(cleanEmail)) {
+          localStorage.setItem('finora_is_super_admin', 'true');
+          setIsSuperAdminState(true);
+        }
+        setUser(fallbackUser);
+        setIsGuest(false);
+        if (!auth.currentUser) {
+          signInAnonymously(auth).catch(() => {});
+        }
+        return;
+      }
+
       let userMsg = 'লগইন ব্যর্থ হয়েছে। ইমেইল এবং পাসওয়ার্ড সঠিক কিনা পরীক্ষা করুন।';
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         userMsg = 'ভুল ইমেইল বা পাসওয়ার্ড প্রদান করা হয়েছে। আপনি যদি নতুন ব্যবহারকারী হন তবে প্রথমে অ্যাকাউন্ট তৈরি (Sign Up) করুন।';
@@ -202,6 +286,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userMsg = 'অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িকভাবে লক হয়েছে। একটু পরে চেষ্টা করুন।';
       } else if (err.code === 'auth/invalid-email') {
         userMsg = 'ইমেইল ঠিকানার ফরম্যাট সঠিক নয়। সঠিক ইমেইল প্রদান করুন।';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        userMsg = 'Firebase-এ Email/Password প্রোভাইডার সক্রিয় নেই। আপনি Google বা ডাইরেক্ট মোডে প্রবেশ করতে পারেন।';
       } else if (err.message) {
         userMsg = err.message;
       }
@@ -213,17 +299,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const registerWithEmail = async (email: string, pass: string, name: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const formattedName = name.trim();
     try {
       setError(null);
       setIsGuest(false);
       localStorage.removeItem('finora_guest_user');
       localStorage.removeItem('finora_google_user');
-      const userCred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-      if (name && userCred.user) {
-        await updateProfile(userCred.user, { displayName: name.trim() });
+      const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      if (formattedName && userCred.user) {
+        await updateProfile(userCred.user, { displayName: formattedName });
       }
+      if (isOwnerEmail(cleanEmail)) {
+        localStorage.setItem('finora_is_super_admin', 'true');
+        setIsSuperAdminState(true);
+      }
+      // Also cache in local registry for backup
+      const localUsers = JSON.parse(localStorage.getItem('finora_local_auth_users') || '{}');
+      localUsers[cleanEmail] = { email: cleanEmail, name: formattedName, password: pass, createdAt: new Date().toISOString() };
+      localStorage.setItem('finora_local_auth_users', JSON.stringify(localUsers));
     } catch (err: any) {
       console.warn('Registration Notice:', err?.code || err?.message);
+
+      // If Firebase email/password is disabled or domain unauthorized, store locally so user is NEVER blocked!
+      if (err.code === 'auth/operation-not-allowed' || err.code === 'auth/unauthorized-domain' || err.code === 'auth/network-request-failed') {
+        const localUsers = JSON.parse(localStorage.getItem('finora_local_auth_users') || '{}');
+        localUsers[cleanEmail] = { email: cleanEmail, name: formattedName, password: pass, createdAt: new Date().toISOString() };
+        localStorage.setItem('finora_local_auth_users', JSON.stringify(localUsers));
+
+        const fallbackUser = {
+          uid: `usr_${cleanEmail.replace(/[^a-z0-9]/gi, '_')}`,
+          email: cleanEmail,
+          displayName: formattedName || cleanEmail.split('@')[0],
+          photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(formattedName)}&background=059669&color=fff`,
+          emailVerified: true,
+          isAnonymous: false,
+        } as unknown as User;
+
+        localStorage.setItem('finora_google_user', JSON.stringify(fallbackUser));
+        if (isOwnerEmail(cleanEmail)) {
+          localStorage.setItem('finora_is_super_admin', 'true');
+          setIsSuperAdminState(true);
+        }
+        setUser(fallbackUser);
+        setIsGuest(false);
+        if (!auth.currentUser) {
+          signInAnonymously(auth).catch(() => {});
+        }
+        return;
+      }
+
       let userMsg = 'নিবন্ধন সম্পন্ন করা যায়নি।';
       if (err.code === 'auth/email-already-in-use') {
         userMsg = 'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। লগইন করার চেষ্টা করুন।';
@@ -316,10 +441,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         isGuest,
         isGuestMode: isGuest,
+        isSuperAdmin,
         loginWithGoogle,
         loginWithDirectGoogleAccount,
         loginWithEmail,
         registerWithEmail,
+        loginAsSuperAdmin,
+        isOwnerEmail,
         setPasswordForAccount,
         logout,
         loginAsGuest,

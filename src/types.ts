@@ -160,11 +160,14 @@ export interface Investment {
   updatedAt?: string;
 }
 
+export type UserRole = 'super_admin' | 'admin' | 'user' | 'guest';
+
 export interface UserProfile {
   userId: string;
   email: string;
   displayName: string;
   photoURL?: string;
+  role?: UserRole;
   currency: string;
   currencySymbol: string;
   theme: 'light' | 'dark' | 'system';

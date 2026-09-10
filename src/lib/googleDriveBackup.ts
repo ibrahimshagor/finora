@@ -22,10 +22,10 @@ export interface GoogleDriveStatus {
 
 export const GDRIVE_FOLDER_NAME = 'FINORA_Financial_Backups';
 
-// Official Google Cloud OAuth Client ID provisioned for FINORA
+// Google Cloud OAuth Client ID (awaiting new credentials)
 export const DEFAULT_GOOGLE_CLIENT_ID = 
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID) ||
-  '874801210488-hk4t3sflhaqktfcsgcnutcc1ghom1hp4.apps.googleusercontent.com';
+  '';
 
 const STORAGE_KEY_GDRIVE_TOKEN = 'finora_gdrive_access_token';
 const STORAGE_KEY_GDRIVE_USER = 'finora_gdrive_user_info';

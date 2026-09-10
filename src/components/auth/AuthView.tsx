@@ -17,7 +17,9 @@ import {
   HelpCircle,
   Copy,
   Check,
-  X
+  X,
+  Crown,
+  KeyRound
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { APP_INFO } from '../../lib/constants';
@@ -28,6 +30,7 @@ export const AuthView: React.FC = () => {
     loginWithDirectGoogleAccount,
     loginWithEmail, 
     registerWithEmail, 
+    loginAsSuperAdmin,
     loginAsGuest, 
     resetPassword, 
     error: authError,
@@ -60,6 +63,25 @@ export const AuthView: React.FC = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
+
+  // Super Admin Portal Modal state
+  const [showSuperAdminModal, setShowSuperAdminModal] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [adminPinError, setAdminPinError] = useState<string | null>(null);
+
+  const handleSuperAdminAuth = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSubmitting(true);
+    setAdminPinError(null);
+    try {
+      await loginAsSuperAdmin(adminPin.trim() || undefined);
+      setShowSuperAdminModal(false);
+    } catch (err: any) {
+      setAdminPinError(err?.message || 'সুপার অ্যাডমিন লগইন ব্যর্থ হয়েছে।');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleCopyDomain = () => {
     const domain = typeof window !== 'undefined' ? window.location.hostname : '';
@@ -356,6 +378,27 @@ export const AuthView: React.FC = () => {
           <div className="lg:col-span-5 w-full">
             <div className="bg-slate-900/90 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-2xl overflow-hidden p-6 sm:p-8">
               
+              {/* Super Admin Access Banner */}
+              <div className="mb-5 p-3 sm:p-3.5 bg-gradient-to-r from-amber-500/15 via-emerald-950/40 to-slate-800/80 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-amber-300 truncate">সুপার অ্যাডমিন পোর্টাল (Super Admin)</p>
+                    <p className="text-[10px] text-slate-300 font-medium truncate">Md. Ibrahim Hossain ({APP_INFO.poweredBy})</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSuperAdminModal(true)}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-[11px] font-black transition-all shadow-md shadow-amber-500/20 flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  <Crown className="w-3 h-3" />
+                  <span>প্রবেশ করুন</span>
+                </button>
+              </div>
+
               {/* Tab Switcher */}
               <div className="flex items-center p-1 bg-slate-800/80 rounded-2xl mb-6 border border-slate-700/60">
                 <button
@@ -716,6 +759,113 @@ export const AuthView: React.FC = () => {
 
         </div>
       </main>
+
+      {/* Super Admin Portal Modal */}
+      {showSuperAdminModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-slate-900 border border-amber-500/50 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4 text-slate-100 relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center shadow-md">
+                  <Crown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">সুপার অ্যাডমিন পোর্টাল</h3>
+                  <p className="text-[11px] text-amber-300">Master Access & Owner Control</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSuperAdminModal(false);
+                  setAdminPinError(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Profile Info Card */}
+            <div className="p-3.5 bg-gradient-to-r from-emerald-950/60 to-slate-850 border border-emerald-500/30 rounded-2xl space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[11px]">প্ল্যাটফর্ম ওনার:</span>
+                <span className="font-bold text-white">Md. Ibrahim Hossain</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[11px]">আইটি পার্টনার:</span>
+                <span className="font-bold text-emerald-400">{APP_INFO.poweredBy}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[11px]">ইমেইল:</span>
+                <span className="font-mono text-[11px] text-slate-300 select-all">ibrahimshagor.official@gmail.com</span>
+              </div>
+            </div>
+
+            {adminPinError && (
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{adminPinError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSuperAdminAuth} className="space-y-3.5 pt-1">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                  মাস্টার পিন কোড (Master Security PIN - ঐচ্ছিক):
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    value={adminPin}
+                    onChange={(e) => setAdminPin(e.target.value)}
+                    placeholder="ডিফল্ট হিসেবে সরাসরি প্রবেশ করতে পারেন"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  ওনার ভেরিফিকেশনের জন্য সরাসরি নিচের বোতামে ক্লিক করলেই পূর্ণ অ্যাক্সেস সক্রিয় হবে।
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>যাচাই করা হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Crown className="w-4 h-4" />
+                    <span>সুপার অ্যাডমিন হিসেবে তাৎক্ষণিক প্রবেশ করুন</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Current Domain Quick Status */}
+            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-slate-400 truncate">ডোমেইন: {typeof window !== 'undefined' ? window.location.hostname : ''}</span>
+              <button
+                type="button"
+                onClick={handleCopyDomain}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+              >
+                {copiedDomain ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedDomain ? 'কপি হয়েছে' : 'কপি'}</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Forgot Password Modal */}
       {showForgotModal && (

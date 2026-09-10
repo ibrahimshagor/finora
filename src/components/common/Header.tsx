@@ -21,7 +21,8 @@ import {
   X,
   Cloud,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Crown
 } from 'lucide-react';
 import { useFinance } from '../../context/FinancialContext';
 import { useAuth } from '../../context/AuthContext';
@@ -37,6 +38,7 @@ interface HeaderProps {
   onOpenSettings: () => void;
   onOpenAbout: () => void;
   onOpenAuth: () => void;
+  onOpenSuperAdminHub?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenAbout,
   onOpenAuth,
+  onOpenSuperAdminHub,
 }) => {
   const { 
     currency, 
@@ -65,7 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
     syncStatus,
     syncAllDataToFirestore,
   } = useFinance();
-  const { user, isGuest, logout } = useAuth();
+  const { user, isGuest, isSuperAdmin, logout } = useAuth();
   
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -348,16 +351,21 @@ export const Header: React.FC<HeaderProps> = ({
                   setShowUserMenu(!showUserMenu);
                   setShowNotifications(false);
                 }}
-                className="flex items-center gap-1.5 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer relative"
                 title={user?.displayName || 'User Profile'}
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex items-center justify-center font-bold text-xs ring-2 ring-emerald-500/30 overflow-hidden shadow-xs">
+                <div className={`w-8 h-8 rounded-full ${isSuperAdmin ? 'bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 ring-2 ring-amber-400/80 shadow-amber-500/20' : 'bg-gradient-to-tr from-emerald-500 to-teal-500 text-white ring-2 ring-emerald-500/30'} flex items-center justify-center font-bold text-xs overflow-hidden shadow-xs relative`}>
                   {user?.photoURL ? (
                     <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
                   ) : (
-                    <span>{user?.displayName ? user.displayName.charAt(0).toUpperCase() : (isGuest ? 'G' : 'U')}</span>
+                    <span>{isSuperAdmin ? '👑' : (user?.displayName ? user.displayName.charAt(0).toUpperCase() : (isGuest ? 'G' : 'U'))}</span>
                   )}
                 </div>
+                {isSuperAdmin && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 rounded-full flex items-center justify-center text-[9px] shadow-sm font-black ring-1 ring-white dark:ring-slate-900">
+                    👑
+                  </span>
+                )}
               </button>
 
               {/* Enhanced User Dropdown / Submenu containing all tools for mobile & quick desktop access */}
@@ -372,13 +380,29 @@ export const Header: React.FC<HeaderProps> = ({
                       <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                         {user?.displayName || (isGuest ? 'Guest User' : 'FINORA User')}
                       </p>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold">
-                        {isGuest ? (language === 'bn' ? 'গেস্ট মোড' : 'Guest') : (language === 'bn' ? 'ক্লাউড সিঙ্ক' : 'Sync On')}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                        isSuperAdmin 
+                          ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                          : isGuest 
+                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300' 
+                            : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                      }`}>
+                        {isSuperAdmin 
+                          ? '👑 Super Admin' 
+                          : isGuest 
+                            ? (language === 'bn' ? 'গেস্ট মোড' : 'Guest') 
+                            : (language === 'bn' ? 'ক্লাউড সিঙ্ক' : 'Sync On')}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
                       {user?.email || (isGuest ? 'guest@finora.app' : '')}
                     </p>
+                    {isSuperAdmin && (
+                      <div className="flex items-center gap-1.5 mt-1.5 px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] text-amber-600 dark:text-amber-400 font-bold w-fit">
+                        <Crown className="w-3 h-3 text-amber-500" />
+                        <span>প্ল্যাটফর্ম ওনার (TIKMERK IT)</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Mobile Quick Tools Grid (Language, AI, Calc, Privacy, Theme, Currency) */}
@@ -514,6 +538,20 @@ export const Header: React.FC<HeaderProps> = ({
                       <Info className="w-4 h-4 text-slate-400" />
                       <span>{language === 'bn' ? 'FINORA পরিচিতি ও ডেভেলপার' : 'About FINORA & Dev'}</span>
                     </button>
+
+                    {onOpenSuperAdminHub && (
+                      <button
+                        id="user-menu-superadmin-btn"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          onOpenSuperAdminHub();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-amber-600 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-xl transition-colors font-bold"
+                      >
+                        <Crown className="w-4 h-4 text-amber-500" />
+                        <span>{language === 'bn' ? '👑 সুপার অ্যাডমিন হাব (Owner Hub)' : '👑 Super Admin Hub'}</span>
+                      </button>
+                    )}
 
                     {user ? (
                       <button

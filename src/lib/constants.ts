@@ -7,6 +7,7 @@ export const APP_INFO = {
   poweredBy: 'TIKMERK IT',
   website: 'https://www.tikmerk.com',
   version: '2.5.0',
+  superAdminEmail: 'ibrahimshagor.official@gmail.com',
   description: 'A complete personal financial management system for tracking accounts, cash flows, loans, transfers, credit cards, investments, budgets, and savings goals with absolute precision.'
 };
 

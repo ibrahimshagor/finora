@@ -7,7 +7,7 @@ import {
   enableIndexedDbPersistence
 } from 'firebase/firestore';
 
-// Firebase configuration (supports environment variables or project defaults)
+// Firebase configuration
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDOtpEOX7OJj_LH6B7l7xjGjYb6w8uQhM0",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "finora-tikmerk-6a07e.firebaseapp.com",
@@ -17,8 +17,27 @@ export const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:41725718584:web:d533e4493b6e019dba36cd"
 };
 
+// Check whether valid Firebase credentials have been configured
+export const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey &&
+  firebaseConfig.apiKey.trim() !== '' &&
+  !firebaseConfig.apiKey.includes('NEW_')
+);
+
+// Fallback configuration to prevent module crash while awaiting new credentials
+const fallbackConfig = {
+  apiKey: "AIzaSy_WAITING_FOR_NEW_FIREBASE_KEY",
+  authDomain: "unconfigured.firebaseapp.com",
+  projectId: "unconfigured-project",
+  storageBucket: "unconfigured-project.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:00000000000000"
+};
+
 // Initialize Firebase App
-export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length > 0 
+  ? getApp() 
+  : initializeApp(isFirebaseConfigured ? firebaseConfig : fallbackConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
@@ -84,6 +103,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Test Connection Helper as mandated by Firebase Skill
 export async function testFirebaseConnection(): Promise<boolean> {
+  if (!isFirebaseConfigured) return false;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;

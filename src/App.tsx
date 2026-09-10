@@ -24,6 +24,7 @@ import { AboutModal } from './components/common/AboutModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { AuthView } from './components/auth/AuthView';
 import { GoogleQuickPickerModal } from './components/auth/GoogleQuickPickerModal';
+import { SuperAdminHubModal } from './components/admin/SuperAdminHubModal';
 import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { Account, Transaction } from './types';
 
@@ -48,6 +49,7 @@ const MainAppContent: React.FC = () => {
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isSuperAdminHubOpen, setIsSuperAdminHubOpen] = useState(false);
   const [isAiViewOpen, setIsAiViewOpen] = useState(false);
   const [isSettingsViewOpen, setIsSettingsViewOpen] = useState(false);
 
@@ -238,6 +240,7 @@ const MainAppContent: React.FC = () => {
           }}
           onOpenAbout={() => setIsAboutOpen(true)}
           onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenSuperAdminHub={() => setIsSuperAdminHubOpen(true)}
         />
 
         {/* Main Content Area */}
@@ -319,6 +322,11 @@ const MainAppContent: React.FC = () => {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+      />
+
+      <SuperAdminHubModal
+        isOpen={isSuperAdminHubOpen}
+        onClose={() => setIsSuperAdminHubOpen(false)}
       />
 
       <GoogleQuickPickerModal />
