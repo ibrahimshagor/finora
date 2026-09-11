@@ -12,6 +12,7 @@ import {
   updatePassword
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
+import { getSystemAccessControl } from '../lib/systemAccessControl';
 
 interface AuthContextType {
   user: User | null;
@@ -35,7 +36,7 @@ interface AuthContextType {
   setShowGoogleQuickPicker: (show: boolean) => void;
 }
 
-const SUPER_ADMIN_EMAIL = 'ibrahimshagor.official@gmail.com';
+export const SUPER_ADMIN_EMAIL = 'ibrahimshagor.official@gmail.com';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -49,24 +50,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isOwnerEmail = (email?: string): boolean => {
     if (!email) return false;
-    return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+    return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
   };
 
-  const isSuperAdmin = isSuperAdminState || isOwnerEmail(user?.email || undefined);
+  // Strictly check if user is super admin: MUST NOT be guest, and email MUST be owner email
+  const isSuperAdmin = !isGuest && !!user && isOwnerEmail(user?.email || undefined);
 
   useEffect(() => {
-    // 1. Check if super admin flag is stored
-    const storedAdmin = localStorage.getItem('finora_is_super_admin') === 'true';
-
-    // 2. Check if direct Google user session is stored in localStorage
+    // 1. Check if direct Google user session is stored in localStorage
     const storedGoogleUser = localStorage.getItem('finora_google_user');
     if (storedGoogleUser) {
       try {
         const googleUserData = JSON.parse(storedGoogleUser);
         setUser(googleUserData);
         setIsGuest(false);
-        if (storedAdmin || isOwnerEmail(googleUserData?.email)) {
-          setIsSuperAdminState(true);
+        const isActualAdmin = isOwnerEmail(googleUserData?.email);
+        setIsSuperAdminState(isActualAdmin);
+        if (!isActualAdmin) {
+          localStorage.removeItem('finora_is_super_admin');
         }
         setLoading(false);
         // Ensure background Firebase session for Firestore writes
@@ -79,13 +80,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 3. Check if guest session is stored in localStorage
+    // 2. Check if guest session is stored in localStorage
     const storedGuest = localStorage.getItem('finora_guest_user');
     if (storedGuest) {
       try {
         const guestData = JSON.parse(storedGuest);
         setUser(guestData);
         setIsGuest(true);
+        setIsSuperAdminState(false);
+        localStorage.removeItem('finora_is_super_admin');
         setLoading(false);
         return;
       } catch (e) {
@@ -93,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 4. Listen to real Firebase Auth state with safety fallback timeout
+    // 3. Listen to real Firebase Auth state with safety fallback timeout
     const authTimeout = setTimeout(() => {
       setLoading(false);
     }, 1500);
@@ -104,8 +107,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isCustomSession) {
         setUser(currentUser);
         setIsGuest(false);
-        if (storedAdmin || isOwnerEmail(currentUser?.email || undefined)) {
-          setIsSuperAdminState(true);
+        const isActualAdmin = isOwnerEmail(currentUser?.email || undefined);
+        setIsSuperAdminState(isActualAdmin);
+        if (!isActualAdmin) {
+          localStorage.removeItem('finora_is_super_admin');
         }
       }
       setLoading(false);
@@ -166,9 +171,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Instant login as Super Admin (Platform Owner: Md. Ibrahim Hossain / TIKMERK IT)
   const loginAsSuperAdmin = async (pin?: string) => {
-    // If PIN is supplied, check against master PIN (default: 123456 or tikmerk2026)
-    if (pin && pin !== '123456' && pin !== 'tikmerk2026' && pin !== '2026') {
-      throw new Error('ভুল সুপার অ্যাডমিন পিন কোড প্রদান করা হয়েছে।');
+    const systemSettings = getSystemAccessControl();
+    const cleanPin = (pin || '').trim();
+    if (!cleanPin) {
+      throw new Error('সুপার অ্যাডমিন হিসেবে প্রবেশের জন্য মাস্টার পিন প্রদান করুন।');
+    }
+
+    const isValidPin = 
+      cleanPin === systemSettings.masterPin || 
+      cleanPin === '2026' || 
+      cleanPin === 'tikmerk2026';
+
+    if (!isValidPin) {
+      throw new Error('ভুল সুপার অ্যাডমিন মাস্টার পিন কোড প্রদান করা হয়েছে।');
     }
 
     await loginWithDirectGoogleAccount(
@@ -199,6 +214,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isOwnerEmail(result.user.email || undefined)) {
           localStorage.setItem('finora_is_super_admin', 'true');
           setIsSuperAdminState(true);
+        } else {
+          localStorage.removeItem('finora_is_super_admin');
+          setIsSuperAdminState(false);
         }
         setError(null);
       }
@@ -248,6 +266,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isOwnerEmail(result.user.email || cleanEmail)) {
         localStorage.setItem('finora_is_super_admin', 'true');
         setIsSuperAdminState(true);
+      } else {
+        localStorage.removeItem('finora_is_super_admin');
+        setIsSuperAdminState(false);
       }
     } catch (err: any) {
       console.warn('Email Login Notice:', err?.code || err?.message);
@@ -270,6 +291,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isOwnerEmail(cleanEmail)) {
           localStorage.setItem('finora_is_super_admin', 'true');
           setIsSuperAdminState(true);
+        } else {
+          localStorage.removeItem('finora_is_super_admin');
+          setIsSuperAdminState(false);
         }
         setUser(fallbackUser);
         setIsGuest(false);
@@ -313,6 +337,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isOwnerEmail(cleanEmail)) {
         localStorage.setItem('finora_is_super_admin', 'true');
         setIsSuperAdminState(true);
+      } else {
+        localStorage.removeItem('finora_is_super_admin');
+        setIsSuperAdminState(false);
       }
       // Also cache in local registry for backup
       const localUsers = JSON.parse(localStorage.getItem('finora_local_auth_users') || '{}');
@@ -340,6 +367,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isOwnerEmail(cleanEmail)) {
           localStorage.setItem('finora_is_super_admin', 'true');
           setIsSuperAdminState(true);
+        } else {
+          localStorage.removeItem('finora_is_super_admin');
+          setIsSuperAdminState(false);
         }
         setUser(fallbackUser);
         setIsGuest(false);
@@ -367,16 +397,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginAsGuest = () => {
+    const systemSettings = getSystemAccessControl();
+    if (!systemSettings.isGuestModeEnabled) {
+      const msg = 'সুপার অ্যাডমিন কর্তৃক ডেমো / গেস্ট মোড সাময়িক বন্ধ রাখা হয়েছে। অনুগ্রহ করে গুগল বা ইমেইল দিয়ে সাইন ইন করুন।';
+      setError(msg);
+      throw new Error(msg);
+    }
+
     const guestUser = {
       uid: 'guest_user_finora_' + Math.random().toString(36).substring(2, 9),
       email: 'guest@finora.app',
-      displayName: 'Guest User',
+      displayName: 'Guest User (Demo)',
       photoURL: '',
       emailVerified: false,
       isAnonymous: true,
     } as unknown as User;
 
     localStorage.removeItem('finora_google_user');
+    localStorage.removeItem('finora_is_super_admin');
+    setIsSuperAdminState(false);
     localStorage.setItem('finora_guest_user', JSON.stringify(guestUser));
     setUser(guestUser);
     setIsGuest(true);
@@ -412,6 +451,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       localStorage.removeItem('finora_guest_user');
       localStorage.removeItem('finora_google_user');
+      localStorage.removeItem('finora_is_super_admin');
+      setIsSuperAdminState(false);
       setIsGuest(false);
       if (auth.currentUser) {
         await signOut(auth);

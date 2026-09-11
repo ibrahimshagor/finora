@@ -539,7 +539,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>{language === 'bn' ? 'FINORA পরিচিতি ও ডেভেলপার' : 'About FINORA & Dev'}</span>
                     </button>
 
-                    {onOpenSuperAdminHub && (
+                    {isSuperAdmin && onOpenSuperAdminHub && (
                       <button
                         id="user-menu-superadmin-btn"
                         onClick={() => {

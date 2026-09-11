@@ -26,6 +26,8 @@ import {
   FolderDown,
   History,
   FileJson,
+  FileSpreadsheet,
+  Smartphone,
   X
 } from 'lucide-react';
 import { useFinance } from '../../context/FinancialContext';
@@ -43,19 +45,6 @@ import {
   BackupSnapshot,
   AutoBackupConfig
 } from '../../lib/autoBackupManager';
-import { 
-  requestGoogleDriveAccess, 
-  getStoredGoogleDriveToken, 
-  clearGoogleDriveSession, 
-  getGoogleDriveUserInfo,
-  getGoogleDriveSettings,
-  saveGoogleDriveSettings,
-  uploadBackupFileToDrive,
-  listDriveBackups,
-  downloadDriveBackupContent,
-  deleteDriveBackupFile,
-  GoogleDriveFile
-} from '../../lib/googleDriveBackup';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -78,6 +67,7 @@ export const SettingsView: React.FC = () => {
     exportDataJSON,
     importFullDataJSON,
     importDataJSON,
+    importFromCsvOrJsonFile,
     resetToDemoData,
     resetAllData,
     syncAllDataToFirestore
@@ -104,36 +94,16 @@ export const SettingsView: React.FC = () => {
   const [isTakingSnapshot, setIsTakingSnapshot] = useState(false);
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
 
-  // Google Drive state
-  const [gdriveToken, setGdriveToken] = useState<string | null>(() => getStoredGoogleDriveToken(userKey));
-  const [gdriveUser, setGdriveUser] = useState<{ email?: string; name?: string } | null>(() => getGoogleDriveUserInfo(userKey));
-  const [gdriveSettings, setGdriveSettings] = useState(() => getGoogleDriveSettings(userKey));
-  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
-  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
-  const [driveStatusMsg, setDriveStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  // Mobile & File-based Backup & Restore state
+  const [isRestoringFile, setIsRestoringFile] = useState(false);
+  const [fileRestoreStatus, setFileRestoreStatus] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [downloadSuccessMsg, setDownloadSuccessMsg] = useState<string | null>(null);
 
-  // Account Picker / Connection Modal
-  const [showAccountModal, setShowAccountModal] = useState(false);
-  const [customEmailInput, setCustomEmailInput] = useState(user?.email || '');
-
-  // Drive File List Modal
-  const [showDriveModal, setShowDriveModal] = useState(false);
-  const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
-  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
-  const [restoringFileId, setRestoringFileId] = useState<string | null>(null);
-
-  // Refresh Google Drive & Snapshot status whenever current user changes
+  // Refresh snapshot status whenever current user changes
   useEffect(() => {
-    const currentToken = getStoredGoogleDriveToken(userKey);
-    const currentUser = getGoogleDriveUserInfo(userKey);
-    setGdriveToken(currentToken);
-    setGdriveUser(currentUser);
-    setGdriveSettings(getGoogleDriveSettings(userKey));
     setSnapshots(getStoredSnapshots(userKey));
     setAutoBackupConfig(getAutoBackupConfig(userKey));
-    setCustomEmailInput(currentUser?.email || user?.email || '');
-    setDriveStatusMsg(null);
-  }, [userKey, user?.email]);
+  }, [userKey]);
 
   const handleTestDatabase = async () => {
     setTestingDb(true);
@@ -152,6 +122,101 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  // 1. Export CSV Backup (Opens in Excel, Google Sheets, Mobile file viewers)
+  const handleExportCSV = () => {
+    try {
+      const header = ['তারিখ (Date)', 'ধরন (Type)', 'ক্যাটেগরি (Category)', 'পরিমাণ (Amount)', 'অ্যাকাউন্ট (Account)', 'বিবরণ (Description)'];
+      const rows = transactions.map(tx => {
+        const acc = accounts.find(a => a.id === tx.accountId)?.name || 'ক্যাশ';
+        const typeBn = tx.type === 'income' ? 'আয়' : (tx.type === 'expense' ? 'খরচ' : 'স্থানান্তর');
+        const desc = (tx.description || '').replace(/"/g, '""');
+        return [
+          tx.date,
+          typeBn,
+          `"${tx.category}"`,
+          tx.amount,
+          `"${acc}"`,
+          `"${desc}"`
+        ].join(',');
+      });
+
+      const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const fileName = `FINORA_Transactions_${new Date().toISOString().split('T')[0]}.csv`;
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setDownloadSuccessMsg(`✅ "${fileName}" ফাইলটি আপনার মোবাইলে সফলভাবে ডাউনলোড হয়েছে!`);
+      setTimeout(() => setDownloadSuccessMsg(null), 5000);
+    } catch (err) {
+      console.error('CSV Export error:', err);
+    }
+  };
+
+  // 2. Export Excel Compatible Spreadsheet (.xls)
+  const handleExportExcel = () => {
+    try {
+      const rowsHtml = transactions.map(tx => {
+        const acc = accounts.find(a => a.id === tx.accountId)?.name || 'ক্যাশ';
+        const typeBn = tx.type === 'income' ? 'আয়' : (tx.type === 'expense' ? 'খরচ' : 'স্থানান্তর');
+        return `<tr>
+          <td>${tx.date}</td>
+          <td>${typeBn}</td>
+          <td>${tx.category}</td>
+          <td>${tx.amount}</td>
+          <td>${acc}</td>
+          <td>${tx.description || ''}</td>
+        </tr>`;
+      }).join('');
+
+      const excelTemplate = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
+      </head>
+      <body>
+        <table border="1">
+          <thead>
+            <tr style="background-color:#059669;color:#ffffff;font-weight:bold;">
+              <th>তারিখ (Date)</th>
+              <th>ধরন (Type)</th>
+              <th>ক্যাটেগরি (Category)</th>
+              <th>পরিমাণ (Amount)</th>
+              <th>অ্যাকাউন্ট (Account)</th>
+              <th>বিবরণ (Description)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>`;
+
+      const blob = new Blob(['\uFEFF' + excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const fileName = `FINORA_Excel_Backup_${new Date().toISOString().split('T')[0]}.xls`;
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setDownloadSuccessMsg(`✅ "${fileName}" এক্সেল ফাইলটি আপনার মোবাইলে সফলভাবে ডাউনলোড হয়েছে!`);
+      setTimeout(() => setDownloadSuccessMsg(null), 5000);
+    } catch (err) {
+      console.error('Excel Export error:', err);
+    }
+  };
+
+  // 3. Export Full System Backup JSON
   const handleExportBackup = () => {
     try {
       const exportFn = exportFullDataJSON || exportDataJSON;
@@ -172,224 +237,62 @@ export const SettingsView: React.FC = () => {
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
+      const fileName = `FINORA_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
       a.href = url;
-      a.download = `FINORA_ManualBackup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      setDownloadSuccessMsg(`✅ "${fileName}" সম্পূর্ণ ব্যাকআপ ফাইলটি আপনার মোবাইলে সেভ হয়েছে!`);
+      setTimeout(() => setDownloadSuccessMsg(null), 5000);
     } catch (err) {
       console.error('Export error:', err);
     }
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 4. Restore from Phone (CSV, Excel-CSV, or JSON)
+  const handleMobileFileRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setIsRestoringFile(true);
+    setFileRestoreStatus({ text: `"${file.name}" ফাইলটি প্রসেস ও রিস্টোর করা হচ্ছে...`, type: 'info' });
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const content = evt.target?.result as string;
-        const importFn = importFullDataJSON || importDataJSON;
-        const res = typeof importFn === 'function' ? await importFn(content) : false;
-        if (res === true || (typeof res === 'object' && res?.success)) {
-          setImportStatus(language === 'bn' ? '✅ ব্যাকআপ ফাইল সফলভাবে লোড ও রিস্টোর করা হয়েছে!' : '✅ Backup file loaded and data restored successfully!');
-        } else {
-          setImportStatus(language === 'bn' ? '❌ ত্রুটি: সঠিক FINORA ব্যাকআপ JSON ফাইল প্রদান করুন।' : '❌ Error: Please provide a valid FINORA backup JSON file.');
+        if (!content || !content.trim()) {
+          setFileRestoreStatus({ text: '❌ নির্বাচিত ফাইলটি ফাঁকা বা পড়তে পারা যায়নি।', type: 'error' });
+          setIsRestoringFile(false);
+          return;
         }
-      } catch (err) {
-        setImportStatus(language === 'bn' ? '❌ ত্রুটি: ব্যাকআপ ফাইলটি প্রসেস করা সম্ভব হয়নি।' : '❌ Error: Failed to process backup file.');
+
+        const res = await importFromCsvOrJsonFile(content, file.name);
+        if (res.success) {
+          setFileRestoreStatus({
+            text: `✅ "${file.name}" ফাইল থেকে সফলভাবে রিস্টোর সম্পন্ন হয়েছে! ফায়ারবেস ক্লাউড ডাটাবেজেও তথ্য আপডেট হয়ে গেছে।`,
+            type: 'success'
+          });
+        } else {
+          setFileRestoreStatus({
+            text: `❌ রিস্টোর ত্রুটি: ${res.error || 'সঠিক ব্যাকআপ ফাইল প্রদান করুন।'}`,
+            type: 'error'
+          });
+        }
+      } catch (err: any) {
+        setFileRestoreStatus({
+          text: `❌ ফাইল পড়তে ব্যর্থ: ${err.message || err}`,
+          type: 'error'
+        });
+      } finally {
+        setIsRestoringFile(false);
+        e.target.value = '';
       }
     };
     reader.readAsText(file);
-  };
-
-  // Google Drive Connect with account
-  const handleConnectGoogleDrive = async () => {
-    setIsConnectingDrive(true);
-    setDriveStatusMsg(null);
-    try {
-      const res = await requestGoogleDriveAccess(userKey);
-      setGdriveToken(res.token);
-      setGdriveUser({ email: res.email, name: res.name });
-      setShowAccountModal(false);
-      const connectedEmail = res.email || getGoogleDriveUserInfo(userKey)?.email || 'আমার ড্রাইভ';
-      setDriveStatusMsg({
-        text: `✅ আপনার Google Account (${connectedEmail}) সফলভাবে সংযুক্ত হয়েছে! এখন সরাসরি এই অ্যাকাউন্টের Google Drive ফোল্ডারে ব্যাকআপ জমা হবে।`,
-        type: 'success',
-      });
-    } catch (err: any) {
-      console.warn('Google Drive Connect notice:', err);
-      if (
-        err?.isCancelled || 
-        err?.code === 'popup_closed' || 
-        err?.message?.includes('closed') || 
-        err?.message?.includes('বন্ধ') ||
-        err?.message?.includes('Popup window closed')
-      ) {
-        // User closed or cancelled popup window - don't show red error
-        setDriveStatusMsg(null);
-        return;
-      }
-      setDriveStatusMsg({
-        text: err.message || 'Google Drive সংযোগ ব্যর্থ হয়েছে।',
-        type: 'error',
-      });
-    } finally {
-      setIsConnectingDrive(false);
-    }
-  };
-
-  // Google Drive Disconnect
-  const handleDisconnectGoogleDrive = () => {
-    clearGoogleDriveSession(userKey);
-    setGdriveToken(null);
-    setGdriveUser(null);
-    setDriveStatusMsg({
-      text: 'Google Drive সংযোগ বিচ্ছিন্ন করা হয়েছে। আপনি যে কোনো সময় নতুন অ্যাকাউন্ট সংযুক্ত করতে পারেন।',
-      type: 'success',
-    });
-  };
-
-  // Upload Now to Google Drive
-  const handleUploadToGoogleDriveNow = async () => {
-    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
-    if (!token) {
-      setShowAccountModal(true);
-      return;
-    }
-
-    setIsUploadingDrive(true);
-    setDriveStatusMsg(null);
-    try {
-      const snapshot = createBackupSnapshot({
-        accounts,
-        transactions,
-        loans,
-        budgets,
-        savingsGoals,
-        bills,
-        investments,
-        categories,
-      }, 'manual');
-
-      const now = new Date();
-      const dateStr = now.toISOString().split('T')[0];
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
-      const fileName = `FINORA_DriveBackup_${dateStr}_${timeStr}.json`;
-
-      await uploadBackupFileToDrive(token, snapshot.data, fileName, userKey);
-
-      // Also save locally as snapshot
-      const updatedSnapshots = saveSnapshot(snapshot, 10, userKey);
-      setSnapshots(updatedSnapshots);
-
-      const targetAccount = gdriveUser?.email || user?.email || 'আপনার নির্বাচিত Google একাউন্ট';
-      setDriveStatusMsg({
-        text: `✅ (${targetAccount}) Google Drive ফোল্ডারে "${fileName}" সফলভাবে আপলোড হয়েছে!`,
-        type: 'success',
-      });
-
-      // If modal is open, refresh files
-      if (showDriveModal) {
-        const files = await listDriveBackups(token, userKey);
-        setDriveFiles(files);
-      }
-    } catch (err: any) {
-      console.error('Google Drive Upload error:', err);
-      if (err.message && (err.message.includes('401') || err.message.includes('Invalid Credentials') || err.message.includes('Google Drive API error'))) {
-        clearGoogleDriveSession(userKey);
-        setGdriveToken(null);
-        setDriveStatusMsg({
-          text: 'Google Drive সেশন মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে পুনরায় অ্যাকাউন্ট নির্বাচন করুন।',
-          type: 'error',
-        });
-        setShowAccountModal(true);
-      } else {
-        setDriveStatusMsg({
-          text: `Google Drive এ আপলোড ব্যর্থ হয়েছে: ${err.message}`,
-          type: 'error',
-        });
-      }
-    } finally {
-      setIsUploadingDrive(false);
-    }
-  };
-
-  // Open Drive Backups Modal & Fetch List
-  const handleOpenDriveModal = async () => {
-    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
-    if (!token) {
-      setShowAccountModal(true);
-      return;
-    }
-
-    setShowDriveModal(true);
-    setIsLoadingDriveFiles(true);
-    try {
-      const files = await listDriveBackups(token, userKey);
-      setDriveFiles(files);
-    } catch (err: any) {
-      console.error(err);
-      if (err.message && err.message.includes('401')) {
-        clearGoogleDriveSession(userKey);
-        setGdriveToken(null);
-        alert('Google সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার সাইন ইন করুন।');
-        setShowDriveModal(false);
-      }
-    } finally {
-      setIsLoadingDriveFiles(false);
-    }
-  };
-
-  // Restore file from Google Drive
-  const handleRestoreFromDriveFile = async (file: GoogleDriveFile) => {
-    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
-    if (!token) return;
-
-    const confirmMsg = `আপনি কি Google Drive এর "${file.name}" ব্যাকআপ ফাইলটি থেকে ডেটা রিস্টোর করতে চান? আপনার বর্তমান হিসাব এই ব্যাকআপের তথ্য দ্বারা প্রতিস্থাপিত হবে।`;
-    if (!window.confirm(confirmMsg)) return;
-
-    setRestoringFileId(file.id);
-    try {
-      const fileData = await downloadDriveBackupContent(token, file.id, userKey);
-      const importFn = importFullDataJSON || importDataJSON;
-      const res = typeof importFn === 'function' ? await importFn(fileData) : false;
-      if (res === true || (typeof res === 'object' && res?.success)) {
-        alert('✅ Google Drive থেকে সফলভাবে ডেটা রিস্টোর সম্পন্ন হয়েছে!');
-        setShowDriveModal(false);
-        setDriveStatusMsg({
-          text: `✅ Google Drive ব্যাকআপ (${file.name}) সফলভাবে রিস্টোর করা হয়েছে!`,
-          type: 'success',
-        });
-      } else {
-        alert('❌ ব্যাকআপ ফাইলটি সঠিক ফরম্যাটে ছিল না বা রিস্টোর করা যায়নি।');
-      }
-    } catch (err: any) {
-      alert(`রিস্টোর ব্যর্থ হয়েছে: ${err.message}`);
-    } finally {
-      setRestoringFileId(null);
-    }
-  };
-
-  // Delete file from Google Drive
-  const handleDeleteDriveFile = async (fileId: string) => {
-    const token = gdriveToken || getStoredGoogleDriveToken(userKey);
-    if (!token) return;
-
-    if (!window.confirm('আপনি কি Google Drive থেকে এই ব্যাকআপ ফাইলটি মুছে ফেলতে চান?')) return;
-
-    try {
-      await deleteDriveBackupFile(token, fileId, userKey);
-      setDriveFiles((prev) => prev.filter((f) => f.id !== fileId));
-      setDriveStatusMsg({
-        text: '✅ ব্যাকআপ ফাইলটি সফলভাবে মুছে ফেলা হয়েছে।',
-        type: 'success',
-      });
-    } catch (err: any) {
-      alert(`মুছতে ব্যর্থ হয়েছে: ${err.message}`);
-    }
   };
 
   // Take Snapshot locally now
@@ -479,167 +382,159 @@ export const SettingsView: React.FC = () => {
       <div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          <span>সেটিংস ও ডেটা হাব (Settings & Data Hub)</span>
+          <span>সেটিংস ও ডেটা ব্যাকআপ হাব (Settings & Data Hub)</span>
         </h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          অ্যাপ প্রেফারেন্স, গুগল ড্রাইভ ক্লাউড ব্যাকআপ, দৈনিক অটো ব্যাকআপ শিডিউল ও ডেটাবেস সিঙ্ক।
+          মোবাইলে ম্যানুয়াল ব্যাকআপ ডাউনলোড (CSV, Excel, JSON), ফোন থেকে অটো-রিস্টোর ও ক্লাউড ডেটাবেস সিঙ্ক।
         </p>
       </div>
 
-      {/* 1. Google Drive Personal Account Cloud Backup Section */}
-      <div className="bg-gradient-to-br from-white via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 rounded-2xl p-6 border border-emerald-500/30 dark:border-emerald-500/20 shadow-sm space-y-5 relative overflow-hidden">
+      {/* 1. Mobile & Offline File-based Backup & Restore Section */}
+      <div className="bg-gradient-to-br from-white via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 rounded-2xl p-6 border border-emerald-500/30 dark:border-emerald-500/20 shadow-sm space-y-6 relative overflow-hidden">
         
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center shrink-0">
-              <HardDrive className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center shrink-0">
+              <Smartphone className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Google Drive ব্যক্তিগত ক্লাউড ব্যাকআপ (Personal Cloud Backup)
+                  মোবাইল ফাইল ব্যাকআপ ও রিস্টোর (Mobile File Backup & Restore)
                 </h3>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 rounded-md text-[10px] font-bold">
-                  Online Drive
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 rounded-md text-[10px] font-bold">
+                  ক্লিন ও ঝামেলামুক্ত
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                আপনার নিজস্ব ব্যক্তিগত জিমেইল গুগল ড্রাইভে প্রতিদিনের সম্পূর্ণ হিসাব সুরক্ষিত ফোল্ডারে ব্যাকআপ রাখুন।
+                কোনো গুগল ক্লায়েন্ট আইডি বা ড্রাইভ সংযোগের প্রয়োজন নেই। সরাসরি আপনার ফোনে CSV বা Excel ফাইল সেভ করে রাখুন।
               </p>
             </div>
           </div>
 
-          {/* Connection Pill */}
-          <div className="shrink-0 flex items-center gap-2">
-            {gdriveToken ? (
-              <div className="flex items-center gap-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span>ড্রাইভ: <strong>{gdriveUser?.email || user?.email || 'আমার গুগল একাউন্ট'}</strong></span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAccountModal(true)}
-                  className="px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors border border-slate-300 dark:border-slate-700"
-                >
-                  পরিবর্তন করুন
-                </button>
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400">
-                <Cloud className="w-4 h-4 text-slate-400" />
-                <span>ড্রাইভ এখনো সংযুক্ত নয়</span>
-              </div>
-            )}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <span>অফলাইন ও নিরাপদ স্টোরেজ</span>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-          
-          {/* Connect / Disconnect */}
-          {!gdriveToken ? (
-            <button
-              type="button"
-              onClick={() => setShowAccountModal(true)}
-              disabled={isConnectingDrive}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
-            >
-              {isConnectingDrive ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>সংযোগ করা হচ্ছে...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  </svg>
-                  <span>Google Drive অ্যাকাউন্ট নির্বাচন ও সংযোগ</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleDisconnectGoogleDrive}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors"
-            >
-              <span>সংযোগ বিচ্ছিন্ন করুন</span>
-            </button>
-          )}
-
-          {/* Upload Backup Now to Drive */}
-          <button
-            type="button"
-            onClick={handleUploadToGoogleDriveNow}
-            disabled={isUploadingDrive}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
-          >
-            {isUploadingDrive ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>ড্রাইভে আপলোড হচ্ছে...</span>
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                <span>এখনই Google Drive এ ব্যাকআপ তুলুন</span>
-              </>
-            )}
-          </button>
-
-          {/* Browse & Restore from Drive */}
-          <button
-            type="button"
-            onClick={handleOpenDriveModal}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors border border-slate-700"
-          >
-            <FolderDown className="w-4 h-4 text-emerald-400" />
-            <span>ড্রাইভ ব্যাকআপ তালিকা ও রিস্টোর</span>
-          </button>
-
-        </div>
-
-        {/* Google Drive Auto Sync Toggle & Time */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="gdrive_autosync"
-              checked={gdriveSettings.autoSync}
-              onChange={(e) => {
-                const updated = { ...gdriveSettings, autoSync: e.target.checked };
-                setGdriveSettings(updated);
-                saveGoogleDriveSettings(updated);
-              }}
-              className="w-4 h-4 text-emerald-600 rounded-sm focus:ring-emerald-500"
-            />
-            <label htmlFor="gdrive_autosync" className="font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
-              প্রতিদিনের ব্যাকআপ স্বয়ংক্রিয়ভাবে Google Drive এ আপলোড করুন (Daily Auto Cloud Sync)
-            </label>
-          </div>
-
-          <span className="text-[11px] text-slate-400">
-            গুগল ড্রাইভ ফোল্ডার: <code className="text-emerald-600 dark:text-emerald-400 font-mono">FINORA_Financial_Backups</code>
+        {/* Action Grid: Part 1 - Download to Phone */}
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>১. ফোনে ব্যাকআপ ফাইল নামিয়ে রাখুন (Download to Phone):</span>
           </span>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            
+            {/* CSV Backup */}
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>CSV ব্যাকআপ ডাউনলোড</span>
+            </button>
+
+            {/* Excel Backup */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-teal-700 hover:bg-teal-600 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Excel ব্যাকআপ (.xls)</span>
+            </button>
+
+            {/* Full JSON Backup */}
+            <button
+              type="button"
+              onClick={handleExportBackup}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer border border-slate-700"
+            >
+              <FileJson className="w-4 h-4 text-amber-400" />
+              <span>ফুল ব্যাকআপ (JSON)</span>
+            </button>
+
+          </div>
         </div>
 
-        {/* Status Message */}
-        {driveStatusMsg && (
-          <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-            driveStatusMsg.type === 'success'
+        {/* Action Grid: Part 2 - Restore from Phone */}
+        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Upload className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>২. ফোন থেকে ব্যাকআপ আপলোড ও অটো-রিস্টোর (Restore from Phone):</span>
+          </span>
+          
+          <div className="p-4 rounded-xl border border-dashed border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="space-y-1 text-center sm:text-left">
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                পূর্বে নামানো CSV, Excel অথবা JSON ফাইল নির্বাচন করুন
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                ফাইল সিলেক্ট করলেই ফোনে সেভ করা সমস্ত হিসাব স্বয়ংক্রিয়ভাবে রিস্টোর হবে এবং ফায়ারবেস ক্লাউড ডাটাবেজে আপডেট হয়ে যাবে।
+              </p>
+            </div>
+
+            <div className="shrink-0 w-full sm:w-auto">
+              <input
+                type="file"
+                id="mobile_restore_file_input"
+                accept=".csv,.json,.txt,.xls,.xlsx"
+                onChange={handleMobileFileRestore}
+                disabled={isRestoringFile}
+                className="hidden"
+              />
+              <label
+                htmlFor="mobile_restore_file_input"
+                className={`w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
+                  isRestoringFile 
+                    ? 'bg-slate-400 text-white cursor-not-allowed' 
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+              >
+                {isRestoringFile ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>রিস্টোর হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderDown className="w-4 h-4" />
+                    <span>ফোন থেকে ফাইল সিলেক্ট করুন</span>
+                  </>
+                )}
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Download Success Notice */}
+        {downloadSuccessMsg && (
+          <div className="p-3 rounded-xl text-xs font-semibold flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{downloadSuccessMsg}</span>
+          </div>
+        )}
+
+        {/* Restore Status Notice */}
+        {fileRestoreStatus && (
+          <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in ${
+            fileRestoreStatus.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+              : fileRestoreStatus.type === 'info'
+              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
               : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
           }`}>
-            {driveStatusMsg.type === 'success' ? (
+            {fileRestoreStatus.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : fileRestoreStatus.type === 'info' ? (
+              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
-            <span>{driveStatusMsg.text}</span>
+            <span>{fileRestoreStatus.text}</span>
           </div>
         )}
 
@@ -1067,8 +962,8 @@ export const SettingsView: React.FC = () => {
               <span>ব্যাকআপ ফাইল আপলোড করুন</span>
               <input
                 type="file"
-                accept=".json"
-                onChange={handleImportFile}
+                accept=".csv,.json,.txt,.xls,.xlsx"
+                onChange={handleMobileFileRestore}
                 className="hidden"
               />
             </label>
@@ -1148,195 +1043,12 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div className="text-[11px] text-slate-400">
-              Version 2.5.0 • Google Drive Cloud & Automated Daily Backup Ready
+              Version 2.5.0 • Mobile File Backup & Automated Daily Backup Ready
             </div>
           </div>
 
         </div>
       </div>
-
-      {/* Google Drive Account Selection Modal */}
-      {showAccountModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
-            
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-blue-50 dark:bg-blue-950/60 rounded-xl text-blue-600">
-                  <Cloud className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Google Account নির্বাচন ও অনুমোদন
-                  </h3>
-                  <p className="text-[11px] text-slate-500">আপনার যেকোনো ব্যক্তিগত Google Drive যুক্ত করুন</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAccountModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/60 rounded-xl text-xs text-blue-900 dark:text-blue-200">
-                <p className="font-semibold mb-1">🔒 রিয়েল-টাইম ক্লাউড ব্যাকআপ:</p>
-                <p className="text-[11px] leading-relaxed text-blue-800 dark:text-blue-300">
-                  নিচের বাটনে চাপ দিলে Google-এর অফিসিয়াল অথেনটিকেশন পপ-আপ ওপেন হবে। সেখান থেকে আপনার ডিভাইসের যেকোনো জিমেইল অ্যাকাউন্ট সিলেক্ট করে Google Drive পারমিশন প্রদান করুন। নির্বাচিত অ্যাকাউন্টের <code className="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 rounded">FINORA_Financial_Backups</code> ফোল্ডারে ফাইল সংরক্ষিত হবে।
-                </p>
-              </div>
-
-              {/* Google OAuth Account Chooser Button */}
-              <button
-                type="button"
-                onClick={handleConnectGoogleDrive}
-                disabled={isConnectingDrive}
-                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer"
-              >
-                {isConnectingDrive ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Google একাউন্ট কানেক্ট হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                      <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                    </svg>
-                    <span>গুগল অ্যাকাউন্ট নির্বাচন ও পারমিশন দিন</span>
-                  </>
-                )}
-              </button>
-
-              {gdriveUser?.email && (
-                <p className="text-[11px] text-center text-slate-500">
-                  বর্তমানে সংযুক্ত: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{gdriveUser.email}</span>
-                </p>
-              )}
-            </div>
-
-            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowAccountModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold"
-              >
-                বাতিল করুন
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* Google Drive Backups List & Restore Modal */}
-      {showDriveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <HardDrive className="w-5 h-5 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Google Drive সংরক্ষিত ব্যাকআপ ফাইলসমূহ
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowDriveModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-3">
-              {isLoadingDriveFiles ? (
-                <div className="p-8 text-center space-y-2">
-                  <RefreshCw className="w-6 h-6 text-emerald-500 animate-spin mx-auto" />
-                  <p className="text-xs text-slate-500">গুগল ড্রাইভ ফোল্ডার থেকে ব্যাকআপ লোড করা হচ্ছে...</p>
-                </div>
-              ) : driveFiles.length === 0 ? (
-                <div className="p-8 text-center space-y-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700">
-                  <FileJson className="w-8 h-8 text-slate-400 mx-auto" />
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    আপনার Google Drive ফোল্ডারে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি।
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    "এখনই Google Drive এ ব্যাকআপ তুলুন" বাটনে ক্লিক করে নতুন ব্যাকআপ ফাইল আপলোড করুন।
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {driveFiles.map((file) => (
-                    <div
-                      key={file.id}
-                      className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 flex items-center justify-between gap-3 hover:border-emerald-500/50 transition-colors"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <FileJson className="w-4 h-4 text-emerald-500 shrink-0" />
-                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                            {file.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
-                          <span>তৈরির তারিখ: {new Date(file.createdTime).toLocaleString('bn-BD')}</span>
-                          {file.size && <span>• আকার: {Math.round(parseInt(file.size, 10) / 1024)} KB</span>}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleRestoreFromDriveFile(file)}
-                          disabled={restoringFileId === file.id}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                        >
-                          {restoringFileId === file.id ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>রিস্টোর হচ্ছে...</span>
-                            </>
-                          ) : (
-                            <span>রিস্টোর করুন</span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteDriveFile(file.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                          title="মুছে ফেলুন"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">
-                ড্রাইভ ফোল্ডার: <strong>FINORA_Financial_Backups</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowDriveModal(false)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold"
-              >
-                বন্ধ করুন
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* Account Zero Reset Confirmation Modal */}
       {showResetConfirmModal && (

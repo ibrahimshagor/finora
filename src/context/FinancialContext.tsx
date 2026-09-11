@@ -38,11 +38,6 @@ import {
   createBackupSnapshot, 
   saveSnapshot 
 } from '../lib/autoBackupManager';
-import { 
-  getStoredGoogleDriveToken, 
-  uploadBackupFileToDrive, 
-  getGoogleDriveSettings 
-} from '../lib/googleDriveBackup';
 
 interface FinancialContextType {
   accounts: Account[];
@@ -737,18 +732,6 @@ export const FinancialProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
           // Save to local snapshot storage
           saveSnapshot(snapshot, config.maxStoredSnapshots || 10, userId);
-
-          // If Google Drive token exists and auto-sync is enabled, upload to user's personal Google Drive
-          const driveToken = getStoredGoogleDriveToken(userId);
-          const driveSettings = getGoogleDriveSettings(userId);
-          if (driveToken && driveSettings.autoSync) {
-            try {
-              await uploadBackupFileToDrive(driveToken, snapshot.data, `FINORA_AutoDaily_${todayStr}.json`, userId);
-              console.log('✅ Automated daily backup successfully uploaded to personal Google Drive');
-            } catch (driveErr) {
-              console.warn('Google Drive auto-backup error:', driveErr);
-            }
-          }
 
           // Update config with last backup date & time
           saveAutoBackupConfig({

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Lock, 
   Mail, 
@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { APP_INFO } from '../../lib/constants';
+import { getSystemAccessControl, SystemAccessControl } from '../../lib/systemAccessControl';
 
 export const AuthView: React.FC = () => {
   const { 
@@ -37,6 +38,16 @@ export const AuthView: React.FC = () => {
     clearError,
     setShowGoogleQuickPicker
   } = useAuth();
+
+  const [systemSettings, setSystemSettings] = useState<SystemAccessControl>(getSystemAccessControl());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setSystemSettings(getSystemAccessControl());
+    };
+    window.addEventListener('finora_system_settings_updated', handleUpdate);
+    return () => window.removeEventListener('finora_system_settings_updated', handleUpdate);
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   
@@ -71,11 +82,17 @@ export const AuthView: React.FC = () => {
 
   const handleSuperAdminAuth = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const pin = adminPin.trim();
+    if (!pin) {
+      setAdminPinError('সুপার অ্যাডমিন হিসেবে প্রবেশের জন্য মাস্টার পিন কোড প্রদান করুন।');
+      return;
+    }
     setIsSubmitting(true);
     setAdminPinError(null);
     try {
-      await loginAsSuperAdmin(adminPin.trim() || undefined);
+      await loginAsSuperAdmin(pin);
       setShowSuperAdminModal(false);
+      setAdminPin('');
     } catch (err: any) {
       setAdminPinError(err?.message || 'সুপার অ্যাডমিন লগইন ব্যর্থ হয়েছে।');
     } finally {
@@ -378,26 +395,28 @@ export const AuthView: React.FC = () => {
           <div className="lg:col-span-5 w-full">
             <div className="bg-slate-900/90 backdrop-blur-md rounded-3xl border border-slate-700/80 shadow-2xl overflow-hidden p-6 sm:p-8">
               
-              {/* Super Admin Access Banner */}
-              <div className="mb-5 p-3 sm:p-3.5 bg-gradient-to-r from-amber-500/15 via-emerald-950/40 to-slate-800/80 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
-                    <Crown className="w-4 h-4" />
+              {/* Super Admin Access Banner (Controlled by Super Admin in System Settings) */}
+              {systemSettings.isSuperAdminQuickLoginEnabled && (
+                <div className="mb-5 p-3 sm:p-3.5 bg-gradient-to-r from-amber-500/15 via-emerald-950/40 to-slate-800/80 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                      <Crown className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-amber-300 truncate">সুপার অ্যাডমিন পোর্টাল (Super Admin)</p>
+                      <p className="text-[10px] text-slate-300 font-medium truncate">Md. Ibrahim Hossain ({APP_INFO.poweredBy})</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-amber-300 truncate">সুপার অ্যাডমিন পোর্টাল (Super Admin)</p>
-                    <p className="text-[10px] text-slate-300 font-medium truncate">Md. Ibrahim Hossain ({APP_INFO.poweredBy})</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuperAdminModal(true)}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-[11px] font-black transition-all shadow-md shadow-amber-500/20 flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Crown className="w-3 h-3" />
+                    <span>প্রবেশ করুন</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowSuperAdminModal(true)}
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-[11px] font-black transition-all shadow-md shadow-amber-500/20 flex items-center gap-1 shrink-0 cursor-pointer"
-                >
-                  <Crown className="w-3 h-3" />
-                  <span>প্রবেশ করুন</span>
-                </button>
-              </div>
+              )}
 
               {/* Tab Switcher */}
               <div className="flex items-center p-1 bg-slate-800/80 rounded-2xl mb-6 border border-slate-700/60">
@@ -745,13 +764,23 @@ export const AuthView: React.FC = () => {
                   <span>Google দিয়ে চালিয়ে যান</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={loginAsGuest}
-                  className="w-full py-2 px-4 bg-transparent hover:bg-slate-800/60 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold transition-colors border border-dashed border-slate-700"
-                >
-                  ডেমো / গেস্ট মোডে সরাসরি ড্যাশবোর্ড দেখুন
-                </button>
+                {/* Guest Mode Option - Positioned cleanly at the bottom as requested */}
+                {systemSettings.isGuestModeEnabled ? (
+                  <button
+                    type="button"
+                    onClick={loginAsGuest}
+                    className="w-full py-2.5 px-4 bg-transparent hover:bg-slate-800/70 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-semibold transition-colors border border-dashed border-slate-700/80 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>ডেমো / গেস্ট মোডে সরাসরি ড্যাশবোর্ড দেখুন</span>
+                  </button>
+                ) : (
+                  <div className="text-center py-1">
+                    <span className="text-[11px] text-slate-500 italic">
+                      ডেমো মোড বর্তমানে সুপার অ্যাডমিন কর্তৃক বন্ধ রাখা হয়েছে।
+                    </span>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -922,10 +951,19 @@ export const AuthView: React.FC = () => {
       )}
 
       {/* Footer Branding */}
-      <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-slate-400 z-10">
+      <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-slate-400 z-10 flex flex-col sm:flex-row items-center justify-between gap-3">
         <p>
           Developed by: <strong className="text-slate-200">{APP_INFO.developedBy}</strong> • Powered by: <strong className="text-emerald-400">{APP_INFO.poweredBy}</strong> • All rights reserved.
         </p>
+        <button
+          type="button"
+          onClick={() => setShowSuperAdminModal(true)}
+          className="text-[11px] text-slate-500 hover:text-amber-400 flex items-center gap-1.5 transition-colors cursor-pointer py-1 px-2.5 rounded-lg hover:bg-slate-800/60 border border-transparent hover:border-slate-800"
+          title="সুপার অ্যাডমিন ওনার অথেনটিকেশন"
+        >
+          <KeyRound className="w-3 h-3 text-slate-500" />
+          <span>ওনার সিকিউর এক্সেস</span>
+        </button>
       </footer>
 
     </div>

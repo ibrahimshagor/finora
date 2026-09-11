@@ -29,7 +29,7 @@ import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { Account, Transaction } from './types';
 
 const MainAppContent: React.FC = () => {
-  const { user, isGuestMode, loading: authLoading } = useAuth();
+  const { user, isGuestMode, isSuperAdmin, loading: authLoading } = useAuth();
   const { language } = useFinance();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -240,7 +240,7 @@ const MainAppContent: React.FC = () => {
           }}
           onOpenAbout={() => setIsAboutOpen(true)}
           onOpenAuth={() => setIsAuthOpen(true)}
-          onOpenSuperAdminHub={() => setIsSuperAdminHubOpen(true)}
+          onOpenSuperAdminHub={isSuperAdmin ? () => setIsSuperAdminHubOpen(true) : undefined}
         />
 
         {/* Main Content Area */}
@@ -324,10 +324,12 @@ const MainAppContent: React.FC = () => {
         onClose={() => setIsAuthOpen(false)}
       />
 
-      <SuperAdminHubModal
-        isOpen={isSuperAdminHubOpen}
-        onClose={() => setIsSuperAdminHubOpen(false)}
-      />
+      {isSuperAdmin && (
+        <SuperAdminHubModal
+          isOpen={isSuperAdminHubOpen}
+          onClose={() => setIsSuperAdminHubOpen(false)}
+        />
+      )}
 
       <GoogleQuickPickerModal />
 

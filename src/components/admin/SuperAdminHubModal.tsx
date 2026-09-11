@@ -16,11 +16,17 @@ import {
   HelpCircle,
   Activity,
   Layers,
-  CheckCircle2
+  CheckCircle2,
+  Sliders,
+  ShieldAlert,
+  ToggleLeft,
+  ToggleRight,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useFinance } from '../../context/FinancialContext';
 import { APP_INFO } from '../../lib/constants';
+import { getSystemAccessControl, saveSystemAccessControl, SystemAccessControl } from '../../lib/systemAccessControl';
 
 interface SuperAdminHubModalProps {
   isOpen: boolean;
@@ -41,20 +47,54 @@ export const SuperAdminHubModal: React.FC<SuperAdminHubModalProps> = ({ isOpen, 
     currency
   } = useFinance();
 
-  const [activeTab, setActiveTab] = useState<'domain' | 'database' | 'backup'>('domain');
+  const [activeTab, setActiveTab] = useState<'controls' | 'domain' | 'database' | 'backup'>('controls');
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
   const [pingLatency, setPingLatency] = useState<number | null>(null);
   const [isPinging, setIsPinging] = useState(false);
 
-  if (!isOpen) return null;
+  // Access Control Settings
+  const [systemSettings, setSystemSettings] = useState<SystemAccessControl>(getSystemAccessControl());
+  const [newPin, setNewPin] = useState(systemSettings.masterPin);
+  const [pinUpdateSuccess, setPinUpdateSuccess] = useState(false);
+
+  // Strictly hide if modal is closed or user is not the authenticated super admin
+  if (!isOpen || !isSuperAdmin) return null;
 
   const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
   const isDefaultAuthorized = currentHost.includes('localhost') || 
     currentHost.includes('firebaseapp.com') || 
     currentHost.includes('web.app') || 
     currentHost.includes('127.0.0.1');
+
+  const handleToggleGuestMode = () => {
+    const updated = saveSystemAccessControl({
+      isGuestModeEnabled: !systemSettings.isGuestModeEnabled,
+    });
+    setSystemSettings(updated);
+  };
+
+  const handleToggleSuperAdminQuickLogin = () => {
+    const updated = saveSystemAccessControl({
+      isSuperAdminQuickLoginEnabled: !systemSettings.isSuperAdminQuickLoginEnabled,
+    });
+    setSystemSettings(updated);
+  };
+
+  const handleSavePin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPin.trim() || newPin.trim().length < 4) {
+      alert('মাস্টার পিন কমপক্ষে ৪ সংখ্যার হতে হবে।');
+      return;
+    }
+    const updated = saveSystemAccessControl({
+      masterPin: newPin.trim(),
+    });
+    setSystemSettings(updated);
+    setPinUpdateSuccess(true);
+    setTimeout(() => setPinUpdateSuccess(false), 3000);
+  };
 
   const handleCopy = () => {
     if (currentHost) {
@@ -178,13 +218,26 @@ export const SuperAdminHubModal: React.FC<SuperAdminHubModalProps> = ({ isOpen, 
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-800 bg-slate-900/60 px-4 pt-2 gap-2 text-xs">
+        <div className="flex border-b border-slate-800 bg-slate-900/60 px-4 pt-2 gap-2 text-xs overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab('controls')}
+            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'controls'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>সিস্টেম ও ডেমো কন্ট্রোল</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('domain')}
-            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'domain'
-                ? 'border-amber-400 text-amber-300'
+                ? 'border-cyan-400 text-cyan-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -195,7 +248,7 @@ export const SuperAdminHubModal: React.FC<SuperAdminHubModalProps> = ({ isOpen, 
           <button
             type="button"
             onClick={() => setActiveTab('database')}
-            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'database'
                 ? 'border-emerald-400 text-emerald-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -208,7 +261,7 @@ export const SuperAdminHubModal: React.FC<SuperAdminHubModalProps> = ({ isOpen, 
           <button
             type="button"
             onClick={() => setActiveTab('backup')}
-            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-3 px-3 font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'backup'
                 ? 'border-purple-400 text-purple-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -221,6 +274,133 @@ export const SuperAdminHubModal: React.FC<SuperAdminHubModalProps> = ({ isOpen, 
 
         {/* Tab Content Area */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4 text-xs">
+
+          {/* TAB 0: SYSTEM ACCESS & SECURITY CONTROLS */}
+          {activeTab === 'controls' && (
+            <div className="space-y-4">
+              {/* Demo Mode Toggle Card */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-white">গেস্ট / ডেমো মোড এক্সেস (Guest Demo Mode)</h4>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                        systemSettings.isGuestModeEnabled
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                          : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                      }`}>
+                        {systemSettings.isGuestModeEnabled ? 'বর্তমানে চালু' : 'বর্তমানে বন্ধ'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      এটি চালু থাকলে ভিজিটররা সাইন ইন ছাড়াই ডেমো মোডে অ্যাপের ড্যাশবোর্ড টেস্ট করতে পারবে। বন্ধ রাখলে ডেমো লগইন অপশনটি অফ থাকবে এবং ইউজারদের নিজস্ব অ্যাকাউন্ট দিয়ে সাইন ইন করতে হবে।
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleGuestMode}
+                    className={`shrink-0 p-1.5 rounded-xl border flex items-center gap-1.5 font-bold transition-all cursor-pointer ${
+                      systemSettings.isGuestModeEnabled
+                        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {systemSettings.isGuestModeEnabled ? (
+                      <>
+                        <ToggleRight className="w-5 h-5 text-emerald-400" />
+                        <span className="text-[11px] pr-1">চালু</span>
+                      </>
+                    ) : (
+                      <>
+                        <ToggleLeft className="w-5 h-5 text-slate-500" />
+                        <span className="text-[11px] pr-1">বন্ধ</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Super Admin Quick Banner Toggle Card */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-white">লগইন পেজে সুপার অ্যাডমিন ব্যানার (Admin Quick Banner)</h4>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                        systemSettings.isSuperAdminQuickLoginEnabled
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}>
+                        {systemSettings.isSuperAdminQuickLoginEnabled ? 'প্রদর্শিত হচ্ছে' : 'লুকানো (হাইড করা)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      সাধারণ ভিজিটরদের থেকে অ্যাডমিন ব্যানার গোপন রাখতে এটি বন্ধ রাখুন। আপনি লগইন স্ক্রিনের ফুটারে থাকা নিরাপদ ওনার অ্যাক্সেস লিঙ্ক থেকে মাস্টার পিন দিয়ে যেকোনো সময় ঢুকতে পারবেন।
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleSuperAdminQuickLogin}
+                    className={`shrink-0 p-1.5 rounded-xl border flex items-center gap-1.5 font-bold transition-all cursor-pointer ${
+                      systemSettings.isSuperAdminQuickLoginEnabled
+                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {systemSettings.isSuperAdminQuickLoginEnabled ? (
+                      <>
+                        <ToggleRight className="w-5 h-5 text-amber-400" />
+                        <span className="text-[11px] pr-1">অন</span>
+                      </>
+                    ) : (
+                      <>
+                        <ToggleLeft className="w-5 h-5 text-slate-500" />
+                        <span className="text-[11px] pr-1">অফ</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Master PIN Configuration Card */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-white">সুপার অ্যাডমিন মাস্টার পিন (Master Security PIN)</h4>
+                  <p className="text-[11px] text-slate-400">
+                    লগইন পেজ থেকে সুপার অ্যাডমিন হিসেবে প্রবেশ করতে এই গোপন পিন কোডটি প্রয়োজন হয়।
+                  </p>
+                </div>
+
+                <form onSubmit={handleSavePin} className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={newPin}
+                      onChange={(e) => setNewPin(e.target.value)}
+                      placeholder="নতুন মাস্টার পিন লিখুন"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer shrink-0"
+                  >
+                    সেভ করুন
+                  </button>
+                </form>
+
+                {pinUpdateSuccess && (
+                  <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>মাস্টার পিন সফলভাবে আপডেট করা হয়েছে!</span>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           
           {/* TAB 1: DOMAIN & GOOGLE AUTH */}
           {activeTab === 'domain' && (

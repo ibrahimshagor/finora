@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ShieldCheck, Mail, Lock, User as UserIcon, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { APP_INFO } from '../../lib/constants';
+import { getSystemAccessControl, SystemAccessControl } from '../../lib/systemAccessControl';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -13,6 +14,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [systemSettings, setSystemSettings] = useState<SystemAccessControl>(getSystemAccessControl());
+
+  useEffect(() => {
+    const handleUpdate = () => setSystemSettings(getSystemAccessControl());
+    window.addEventListener('finora_system_settings_updated', handleUpdate);
+    return () => window.removeEventListener('finora_system_settings_updated', handleUpdate);
+  }, []);
 
   if (!isOpen) return null;
 
@@ -98,19 +106,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <span>Google দিয়ে চালিয়ে যান</span>
             </button>
 
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
-              <span className="bg-white dark:bg-slate-900 px-2 text-[10px] text-slate-400 uppercase font-semibold">
-                অথবা
-              </span>
-            </div>
+            {systemSettings.isGuestModeEnabled && (
+              <>
+                <div className="relative flex items-center justify-center">
+                  <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
+                  <span className="bg-white dark:bg-slate-900 px-2 text-[10px] text-slate-400 uppercase font-semibold">
+                    অথবা
+                  </span>
+                </div>
 
-            <button
-              onClick={handleGuestMode}
-              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors"
-            >
-              গেস্ট / অফলাইন ডেমো মোডে প্রবেশ করুন
-            </button>
+                <button
+                  onClick={handleGuestMode}
+                  className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  গেস্ট / অফলাইন ডেমো মোডে প্রবেশ করুন
+                </button>
+              </>
+            )}
           </div>
 
           <div className="pt-2 text-center">
